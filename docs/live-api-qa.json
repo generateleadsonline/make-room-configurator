@@ -1,0 +1,243 @@
+{
+  "checkedAt": "2026-10-11T10:25:08.799828+00:00",
+  "site": "https://make-room-configurator.netlify.app",
+  "testReceiptId": "7b21de19-5129-475d-8a79-810b9697b6f3",
+  "testReference": "MR-7B21DE19",
+  "allPassed": true,
+  "checks": [
+    {
+      "check": "Quote without lead/session",
+      "pass": true,
+      "expected": 401,
+      "actual": 401,
+      "detail": ""
+    },
+    {
+      "check": "PDF without session",
+      "pass": true,
+      "expected": 401,
+      "actual": 401,
+      "detail": ""
+    },
+    {
+      "check": "Invalid lead rejected",
+      "pass": true,
+      "expected": 400,
+      "actual": 400,
+      "detail": ""
+    },
+    {
+      "check": "Invalid lead exposes no quote",
+      "pass": true,
+      "expected": false,
+      "actual": false,
+      "detail": ""
+    },
+    {
+      "check": "Synthetic validated enquiry saved",
+      "pass": true,
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
+    },
+    {
+      "check": "Server confirms saved receipt",
+      "pass": true,
+      "expected": true,
+      "actual": true,
+      "detail": ""
+    },
+    {
+      "check": "Default estimate matches published-guide server model",
+      "pass": true,
+      "expected": 15700,
+      "actual": 15700,
+      "detail": ""
+    },
+    {
+      "check": "Pricing source dated January2024",
+      "pass": true,
+      "expected": "2024-01-09",
+      "actual": "2024-01-09",
+      "detail": ""
+    },
+    {
+      "check": "Saved configuration exactly matches request",
+      "pass": true,
+      "expected": "exact match",
+      "actual": "verified exact match",
+      "detail": ""
+    },
+    {
+      "check": "Session cookie HttpOnly",
+      "pass": true,
+      "expected": true,
+      "actual": true,
+      "detail": ""
+    },
+    {
+      "check": "Session cookie Secure",
+      "pass": true,
+      "expected": true,
+      "actual": true,
+      "detail": ""
+    },
+    {
+      "check": "Session cookie SameSite=Lax",
+      "pass": true,
+      "expected": true,
+      "actual": true,
+      "detail": ""
+    },
+    {
+      "check": "Session cookie Path=/api",
+      "pass": true,
+      "expected": true,
+      "actual": true,
+      "detail": ""
+    },
+    {
+      "check": "Private response is uncached",
+      "pass": true,
+      "expected": true,
+      "actual": true,
+      "detail": ""
+    },
+    {
+      "check": "Same submission retry accepted",
+      "pass": true,
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
+    },
+    {
+      "check": "Retry preserves original quote",
+      "pass": true,
+      "expected": "exact match",
+      "actual": "verified exact match",
+      "detail": ""
+    },
+    {
+      "check": "Changed reuse of enquiry ID rejected",
+      "pass": true,
+      "expected": 409,
+      "actual": 409,
+      "detail": ""
+    },
+    {
+      "check": "Owned design revision saved",
+      "pass": true,
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
+    },
+    {
+      "check": "Revised config exact",
+      "pass": true,
+      "expected": "exact match",
+      "actual": "verified exact match",
+      "detail": ""
+    },
+    {
+      "check": "Revised estimate recalculated",
+      "pass": true,
+      "expected": 17500,
+      "actual": 17500,
+      "detail": ""
+    },
+    {
+      "check": "Unpriced selected extras remain specialist priced",
+      "pass": true,
+      "expected": true,
+      "actual": true,
+      "detail": ""
+    },
+    {
+      "check": "Revision has its own saved design reference",
+      "pass": true,
+      "expected": false,
+      "actual": false,
+      "detail": ""
+    },
+    {
+      "check": "Owned PDF saved behind lead gate",
+      "pass": true,
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
+    },
+    {
+      "check": "Owned saved PDF downloaded",
+      "pass": true,
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
+    },
+    {
+      "check": "Downloaded PDF matches saved bytes",
+      "pass": true,
+      "expected": "exact match",
+      "actual": "verified exact match",
+      "detail": ""
+    },
+    {
+      "check": "Copied download URL without cookie denied",
+      "pass": true,
+      "expected": 401,
+      "actual": 401,
+      "detail": ""
+    },
+    {
+      "check": "Unowned design reference denied",
+      "pass": true,
+      "expected": 400,
+      "actual": 400,
+      "detail": ""
+    },
+    {
+      "check": "Cross-origin request rejected",
+      "pass": true,
+      "expected": 403,
+      "actual": 403,
+      "detail": ""
+    },
+    {
+      "check": "Private durable receipt retrieved with Netlify CLI",
+      "pass": true,
+      "expected": 0,
+      "actual": 0,
+      "detail": ""
+    },
+    {
+      "check": "Persisted receipt matches accepted original reference",
+      "pass": true,
+      "expected": "MR-7B21DE19",
+      "actual": "MR-7B21DE19",
+      "detail": ""
+    },
+    {
+      "check": "Persisted initial config stayed immutable after revision",
+      "pass": true,
+      "expected": "exact match",
+      "actual": "verified exact match",
+      "detail": ""
+    },
+    {
+      "check": "Persisted enquiry is labelled synthetic",
+      "pass": true,
+      "expected": true,
+      "actual": true,
+      "detail": ""
+    }
+  ],
+  "notes": [
+    "No email or CRM notification was sent.",
+    "PDF endpoint transport/gate used a small structurally valid synthetic PDF; illustrated design-pack content is verified separately in browser QA.",
+    "Cookie tokens and private receipt contact details were held privately and are absent from this report."
+  ],
+  "syntheticTestCleanup": {
+    "attemptedObjects": 6,
+    "complete": true,
+    "failedObjectTypes": []
+  }
+}
