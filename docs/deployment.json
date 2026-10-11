@@ -1,0 +1,26 @@
+{
+  "preparedAt": "2026-10-11",
+  "repository": "https://github.com/generateleadsonline/make-room-configurator",
+  "repositoryId": 1414188515,
+  "repositoryVisibility": "public",
+  "productionBranch": "main",
+  "siteName": "make-room-configurator",
+  "siteId": "a1ae9b0e-f2bb-4acf-b3a6-4e6e81310a76",
+  "siteUrl": "https://make-room-configurator.netlify.app",
+  "teamSlug": "team-irlqrei",
+  "teamId": "6a288600eabc095d93f96150",
+  "githubInstallationId": 152377550,
+  "buildCommand": "npm run build",
+  "publishDirectory": "dist",
+  "formsProcessing": "enabled before first application deploy",
+  "publishStatus": "Awaiting first application commit and successful production deploy",
+  "githubCreationMethod": "Existing signed-in GitHub UI; CLI token cannot create organization repositories",
+  "gitPushCommand": "git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push -u origin main",
+  "tracker": {
+    "spreadsheetId": "1tythnNsnxPFyqlPM4ex24IgPJvpYKKL7Bwff9AXqCww",
+    "sheetId": 680417432,
+    "sheetName": "Configurators",
+    "row": 14,
+    "columns": { "status": "C", "github": "F", "netlify": "G", "pdf": "H" }
+  }
+}

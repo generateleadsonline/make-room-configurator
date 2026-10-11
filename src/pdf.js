@@ -1,0 +1,40 @@
+import {jsPDF} from 'jspdf';
+import {summaryRows,CLADDINGS,ELECTRICAL,USES,finish} from './catalog.js';
+const GREEN=[82,111,65],DARK=[37,48,36],MUTED=[91,101,86],PALE=[238,242,233],STONE=[233,230,224];
+function money(n){return new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0}).format(n)}
+async function imageData(src){return new Promise((resolve)=>{const img=new Image();img.onload=()=>{const canvas=document.createElement('canvas');canvas.width=img.naturalWidth*2;canvas.height=img.naturalHeight*2;const ctx=canvas.getContext('2d');ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);resolve(canvas.toDataURL('image/png'));};img.onerror=()=>resolve(null);img.src=src;})}
+export async function buildDesignPack(quote,images={}){
+ const c=quote.config,doc=new jsPDF({unit:'mm',format:'a4',compress:true}),logo=await imageData('/assets/make-room-logo.svg'),photo=await imageData('/assets/real-room.webp');let page=1;
+ doc.setProperties({title:`Your Make Room garden room | ${quote.reference}`,subject:'Personal garden room design and planning estimate',author:'Make Room Outside Living',creator:'Make Room Garden Room Designer'});
+ function rect(x,y,w,h,color){doc.setFillColor(...color);doc.rect(x,y,w,h,'F')}
+ function text(t,x,y,size=10,color=DARK,bold=false,max=170){doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(size);doc.setTextColor(...color);const lines=doc.splitTextToSize(String(t),max);doc.text(lines,x,y);return y+lines.length*size*.43;}
+ function line(y){doc.setDrawColor(...STONE);doc.setLineWidth(.3);doc.line(18,y,192,y)}
+ function img(data,x,y,w,h){if(!data)return;try{doc.addImage(data,data.startsWith('data:image/png')?'PNG':'JPEG',x,y,w,h,undefined,'FAST')}catch{}}
+ function header(){rect(0,0,210,297,[255,255,255]);if(logo)img(logo,18,13,31,22);text('Your personal garden room design',88,23,8,MUTED,false,104);line(41)}
+ function footer(){line(279);text('MAKE ROOM OUTSIDE LIVING',18,286,7,GREEN,true);text(quote.reference,99,286,7,MUTED);text(`${page} / 7`,180,286,7,MUTED)}
+ function newPage(){footer();doc.addPage();page++;header()}
+ function title(t,sub){text(t,18,58,25,GREEN,false,174);if(sub)text(sub,18,72,10,MUTED,false,171)}
+ function note(t,y){rect(18,y,174,Math.max(18,doc.splitTextToSize(t,161).length*4+10),PALE);text(t,24,y+8,9,MUTED,false,161)}
+ function list(items,y){for(const item of items){rect(18,y-2,1.8,1.8,GREEN);y=text(item,24,y,10,DARK,false,165)+5;}return y}
+ header();text('Make room for',18,62,31,DARK);text('your kind of living.',18,77,31,GREEN);text(`${USES.find(x=>x.id===c.use)?.label}  |  ${c.width}m x ${c.depth}m`,18,91,12,MUTED);
+ img(images.hero||images.perspective||photo,0,107,210,112);
+ rect(18,230,174,34,PALE);text('Designed by you. Built around your life.',24,240,13,GREEN);text(`External footprint ${(c.width*c.depth).toFixed(1)} m2   |   Standard height 2.5m`,24,250,10,DARK);text(`Design date: ${new Date(quote.createdAt||Date.now()).toLocaleDateString('en-GB')}`,24,258,8,MUTED);
+ newPage();title('A clear starting point.','Your design summary and personal planning estimate.');
+ rect(18,84,174,47,PALE);text(quote.priceLabel||'Your planning estimate',25,94,10,GREEN);text(quote.total?money(quote.total):'Tailored specialist quote',25,111,quote.total?31:23,GREEN);text(quote.priceNote||'Subject to site survey and final specification.',25,122,8,MUTED,false,160);
+ let y=text(quote.explanation||'Make Room will review your design and confirm the final price after a site assessment.',18,143,10,MUTED,false,174)+8;
+ for(const item of quote.items||[]){line(y+2);text(item.label,18,y,10,DARK);text(item.amount?money(item.amount):item.value||'To be confirmed',137,y,10,DARK,false,55);y+=12;}
+ y=Math.max(y+8,179);text('What your estimate covers',18,y,13,GREEN);y+=9;text(quote.scope||'A planning guide for the room footprint. Final specifications, extras, site access and preparation need individual assessment.',18,y,9,MUTED,false,174);y+=22;
+ text('Before your final quote',18,y,13,GREEN);y+=9;text((quote.exclusions||['Chosen upgrades and bespoke glazing','Ground preparation, foundations and access','Connection to the electrical supply at your home']).join(' | '),18,y,9,MUTED,false,174);
+ if(quote.sourceUrl){text('Published price guide',18,261,8,GREEN,true);doc.link(18,255,65,10,{url:quote.sourceUrl});text('View the source for the planning estimate',18,268,7,MUTED);}
+ newPage();title('Your room, in perspective.','See how your choices work together, from the outside and within.');img(images.perspective||photo,18,83,174,88);text('Your chosen exterior',18,179,13,GREEN);text(`${CLADDINGS.find(x=>x.id===c.cladding)?.label} cladding. ${finish(c).label+' finish'}.`,18,188,10,MUTED);
+ img(images.inside||images.interior||images.front||photo,18,201,94,58);text('Space for your everyday.',121,214,14,GREEN,false,70);text('Furniture is illustrative, helping you imagine the space. Furniture and loose equipment are not included in your specification.',121,226,9,MUTED,false,66);
+ newPage();title('Find your fit.','A dimensioned plan to help you picture your room in your garden.');img(images.plan||images.front||photo,18,86,174,116);
+ rect(18,211,174,24,PALE);text('WIDTH',25,219,8,MUTED);text(`${c.width}m`,25,229,16,GREEN);text('DEPTH',82,219,8,MUTED);text(`${c.depth}m`,82,229,16,GREEN);text('FOOTPRINT',139,219,8,MUTED);text(`${(c.width*c.depth).toFixed(1)} m2`,139,229,16,GREEN);
+ text('External dimensions are shown. Internal usable space is smaller because of the wall construction. Openings, heights and exact dimensions will be confirmed before manufacture. Allow installation and maintenance clearance around the building.',18,249,9,MUTED,false,174);
+ newPage();title('Every choice, in one place.','Your selected specification, ready for a conversation with Make Room.');y=86;for(const [key,value]of summaryRows(c)){if(y>256)break;text(key,18,y,9,MUTED);text(value,92,y,10,DARK,false,100);line(y+4);y+=12;}
+ newPage();title('Made for everyday comfort.','Your selected electrical package and the practical details to confirm.');text(`${ELECTRICAL.find(x=>x.id===c.electrical)?.label} electrical package`,18,88,15,GREEN);y=list(ELECTRICAL.find(x=>x.id===c.electrical)?.items||[],101);line(y+2);y+=17;text('Bring the garden into the room.',18,y,15,GREEN);y+=12;text('Your selected doors and side windows create the starting point for natural light and garden views. Your design specialist will check compatible opening sizes, placement and installation clearances.',18,y,10,MUTED,false,174);y+=35;
+ text('The details that make it yours',18,y,15,GREEN);y+=12;list([`Flooring: ${summaryRows(c).find(x=>x[0]==='Flooring')?.[1]}`,`Roof overhang: ${c.overhang.length?c.overhang.join(', '):'not selected'}`,`Decking: ${c.decking.length?c.decking.join(', '):'not selected'}`],y);note('Supply connection, furniture and decorative accessories are not part of the illustrated design. Colours and natural materials can vary from the screen preview.',251);
+ newPage();title('Let’s make room.','A useful checklist for your next conversation, and a place to experience it.');text('Before we finalise your room',18,90,15,GREEN);list(['Measure your available space and note nearby trees, fences and boundaries.','Take a few photos of the garden, route from the road and access points.','Think about how your room will be used, now and in the future.','Discuss the base, ground preparation and electrical connection.','Ask your specialist to check planning and building regulation requirements.'],104);
+ rect(18,198,174,66,PALE);text('Visit the Halifax Show Village',25,211,17,GREEN);text('Wakefield Road, Copley, Halifax HX3 0UA',25,222,10,DARK);text('01422 580172',25,234,14,GREEN);doc.link(25,228,63,10,{url:'tel:01422580172'});text('halifax@makeroomoutside.co.uk',25,245,10,DARK);doc.link(25,239,110,9,{url:'mailto:halifax@makeroomoutside.co.uk'});text('Explore Make Room and plan your visit',25,257,9,GREEN,true);doc.link(25,250,140,11,{url:'https://www.makeroomoutside.co.uk/our-show-villages/halifax/'});footer();
+ return doc.output('blob');
+}

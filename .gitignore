@@ -1,0 +1,14 @@
+node_modules
+dist/
+.netlify/
+.env*
+qa/*
+!qa/README.md
+research/*-source*
+research/*.html
+research/*.js
+research/source/
+research/competitor-evidence/
+preview-qa.html
+research/preview-fixture.jsx
+public/assets/real-room.jpg
