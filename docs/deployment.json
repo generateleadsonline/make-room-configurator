@@ -13,7 +13,7 @@
   "buildCommand": "npm run build",
   "publishDirectory": "dist",
   "formsProcessing": "enabled before first application deploy",
-  "publishStatus": "Awaiting first application commit and successful production deploy",
+  "publishStatus": "Live; GitHub main auto-deploys to Netlify",
   "githubCreationMethod": "Existing signed-in GitHub UI; CLI token cannot create organization repositories",
   "gitPushCommand": "git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push -u origin main",
   "tracker": {
@@ -21,6 +21,27 @@
     "sheetId": 680417432,
     "sheetName": "Configurators",
     "row": 14,
-    "columns": { "status": "C", "github": "F", "netlify": "G", "pdf": "H" }
-  }
+    "columns": {
+      "status": "C",
+      "github": "F",
+      "netlify": "G",
+      "pdf": "H"
+    },
+    "updatedAt": "2026-10-11",
+    "status": "Live (in GitHub)",
+    "examplePdfUrl": "https://drive.google.com/file/d/1uRyXA43NTYey7qE19_U1qvInaAUzWz9Y/view?usp=drivesdk",
+    "examplePdfVisibility": "owner-only",
+    "verifiedFields": [
+      "C14",
+      "F14",
+      "G14",
+      "H14"
+    ]
+  },
+  "liveConfiguratorUrl": "https://make-room-configurator.netlify.app/configurator/",
+  "verifiedImplementationCommit": "bbb96bec08bea9fa47f127001c8eda0637d580f8",
+  "verifiedDeployId": "6acb6552213b7e00081c8608",
+  "publishedAt": "2026-10-11T10:31:03.280Z",
+  "leadStorage": "Private Netlify Blobs (make-room-leads), not native Netlify Forms",
+  "crmDelivery": "Not configured; requests are stored privately for operator review"
 }
