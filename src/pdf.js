@@ -94,10 +94,10 @@ export async function buildDesignPack(quote,images={}){
 
   // 3 / A visual story, including a real front elevation and the interior.
   newPage();title('Your room, in perspective.','See how your choices work together, from the outside and within.');
-  img(images.perspective||photo,18,83,174,78,{crop:!images.perspective});text('Your chosen exterior',18,169,12,GREEN);text(`${CLADDINGS.find(item=>item.id===c.cladding)?.label} cladding. ${finish(c).label} finish.`,18,176,9,MUTED);
+  img(images.perspective||photo,18,83,174,78,{crop:!images.perspective});text(images.perspective?'Your chosen exterior':'A completed Make Room room',18,169,12,GREEN);text(`${CLADDINGS.find(item=>item.id===c.cladding)?.label} cladding. ${finish(c).label} finish.`,18,176,9,MUTED);
   if(!img(images.front,18,185,83,54))frontDiagram(18,185,83,54);
   img(images.inside||images.interior||photo,109,185,83,54,{crop:!images.inside&&!images.interior});
-  text('FRONT ELEVATION',18,246,8,GREEN,true,83);text('INSIDE YOUR ROOM',109,246,8,GREEN,true,83);
+  text('FRONT ELEVATION',18,246,8,GREEN,true,83);text(images.inside||images.interior?'INSIDE YOUR ROOM':'REAL ROOM INSPIRATION',109,246,8,GREEN,true,83);
   text(`D1: ${door.label}, ${door.openingWidth.toFixed(2)}m catalogue opening width.`,18,253,8,MUTED,false,83);
   text('Furniture and garden are illustrative, and are not included in your selected specification.',109,253,8,MUTED,false,83);
   text('Views illustrate your design; they are not manufacturing drawings or finish samples.',18,266,7,MUTED,false,174);
