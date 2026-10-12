@@ -101,9 +101,12 @@ export class Engine {
     };
     this.handleRestored = () => {
       this.lost = false;
-      this.pmrem.dispose();
+      // Objects from the old context are simply dropped; disposing them would
+      // address GL handles that no longer exist.
       this.pmrem = new THREE.PMREMGenerator(this.renderer);
       this.envRT = null;
+      this.sky = null;
+      this.scene.children.filter((o) => o.name === "sky").forEach((o) => this.scene.remove(o));
       this.applySky();
       this.applyViewVisibility();
       this.dirty = true;

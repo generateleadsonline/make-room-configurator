@@ -26,8 +26,31 @@ Fuzzing: 5,000 random designs normalise idempotently, and the server accepts 2,0
 - Layout at 320, 375, 768, 1024, 1440 and 1920px wide: no horizontal overflow on any step, no console errors. The welcome card, tour, drawer and all five steps were captured at each size.
 - Design gallery (cedar, black slatted, thermowood, Cedral lap, steel, brick extension, oak slatted extension, mixed gym) was compared with the photographs in `research/website-2026-10-12`.
 
+## Mobile and browser compatibility (13 October 2026)
+
+Reported: phones showed "3D isn't available on this device". Reproduced on the live site. Once a browser reclaimed the WebGL context (app switch, screen lock or memory pressure, all routine on iPhones), the viewer switched permanently to the fallback. Devices with only WebGL 1 could not start Three.js r170 at all.
+
+Fixes:
+- **Context loss is recovered.** The view restores in place. If the browser does not hand the context back, it is rebuilt on a fresh canvas, stepping down a quality tier.
+- **WebGL 1 works.** Three.js is pinned to r162, the last release with WebGL 1 support.
+- **Device tiers.** Phones and tablets use half-resolution finish textures, 1024px shadows, a 1.5 pixel ratio and fewer night spotlights. WebGL 1 and low-memory devices use the lightest tier. PDF captures are sized per tier.
+- **Older browsers.** The build is lowered to iOS 13 / Chrome 70 syntax, with polyfills and CSS fallbacks (`dvh`, `clamp`, `aspect-ratio`).
+- **Landscape phones** get a side-by-side layout. Content scrolled into view lands below the pinned 3D stage.
+- **Clear messages.** When 3D truly cannot run (WebGL switched off), the viewer says why and how to fix it, with Try again and a support code.
+
+Tested on a Netlify draft of the production build:
+
+| Engine | Devices and scenarios |
+|---|---|
+| WebKit 18.2 (Safari's engine) | iPhone 13, iPhone SE, iPhone 14 Pro Max and SE in landscape, iPad (gen 7), iPad Pro 11 landscape, iPhone with WebGL 1 only |
+| Firefox 132 | Android profile |
+| Chrome | WebGL 1 only, no WebGL, restorable and permanent context loss |
+
+Every device loaded the 3D, completed the journey (cladding change, add a window, inside and plan views) and recovered from a forced context loss with no console errors. The iPhone price and PDF journey produced the full 8-page pack in 5 seconds. The 795 option checks pass on r162.
+
 ## Known limits
 
 - Prices come from Make Room's published January 2024 guide; the live tool has no rate card.
 - The phone check confirms a valid UK number format and excludes reserved ranges. It does not ring the number or send an SMS.
 - No email or CRM delivery is configured; enquiries, requests and PDFs are stored in Netlify Blobs.
+- A browser with WebGL disabled entirely (iPhone Lockdown Mode, graphics acceleration off) cannot show 3D. It gets the photo, an explanation and the rest of the designer.

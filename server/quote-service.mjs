@@ -179,6 +179,9 @@ export function createQuoteHandler({ getStore, now = () => Date.now(), makeToken
       const store = enquiryStore(getStore, context);
 
       if (input.lead === undefined) {
+        // A first visit has no session yet: answer plainly rather than with an
+        // error, so browsers do not log a failed request on every page load.
+        if (!tokenFrom(request)) return response({ saved: false, session: false }, 200);
         const { token, session, leadReceipt } = await acceptedSession(request, store, now);
         const quote = calculateQuote(design, { reference: leadReceipt.quote.reference, createdAt: timestamp });
         const revisionId = input.requestId || makeId();
