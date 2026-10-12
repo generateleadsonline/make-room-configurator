@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildBuilding, focusTarget, wallPoint, wallFrame, openingRect, FLOOR_Y, FASCIA_BOTTOM, CEILING_Y, WALL_T, setGlassQuality } from "./building.js";
 import { buildLandscape, contactShadow } from "./landscape.js";
-import { setAnisotropy, texturesReady } from "./textures.js";
+import { setAnisotropy, setTextureScale, texturesReady } from "./textures.js";
 import { HEIGHT, wallLength, WALLS } from "../catalog.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -14,17 +14,45 @@ const SKIES = {
   evening: { top: "#1f2b45", horizon: "#e3a77f", ground: "#28302b", sun: "#ffb47a", sunI: 0.35, hemiI: 0.16, hemiSky: "#6c7ea8", hemiGround: "#2c2a26", env: 0.32, exposure: 1.25, fog: "#7c6d6c", sunDir: [-0.85, 0.12, 0.5] },
 };
 
-function skyDome(sky) {
+// Rendering budgets. Phones get smaller textures and shadow maps so the
+// browser does not reclaim the GPU context under memory pressure; WebGL 1
+// devices get the lightest settings.
+export const TIERS = {
+  high: { dpr: 2, shadow: 2048, aniso: 8, texScale: 1, glass: "high", spots: 99, captureShadow: 4096, capture: [2000, 1250], cover: [2400, 1148], elev: 1800 },
+  medium: { dpr: 1.5, shadow: 1024, aniso: 4, texScale: 0.5, glass: "medium", spots: 4, captureShadow: 2048, capture: [1600, 1000], cover: [1920, 918], elev: 1400 },
+  low: { dpr: 1, shadow: 1024, aniso: 2, texScale: 0.5, glass: "medium", spots: 2, captureShadow: 1024, capture: [1280, 800], cover: [1600, 765], elev: 1100 },
+};
+
+// WebGL 2 where available, otherwise WebGL 1 (three r162 supports both).
+function createRenderer(tier) {
+  const attempts = [
+    { antialias: tier !== "low", powerPreference: "high-performance" },
+    { antialias: false, powerPreference: "default" },
+  ];
+  let lastError;
+  for (const opts of attempts) {
+    try {
+      return new THREE.WebGLRenderer({ ...opts, alpha: false, preserveDrawingBuffer: false, failIfMajorPerformanceCaveat: false });
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("WebGL unavailable");
+}
+
+// `scale` stands in for Scene.environmentIntensity, which r162 lacks: the
+// probe sky is simply rendered brighter or darker.
+function skyDome(sky, scale = 1) {
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
     uniforms: {
-      top: { value: new THREE.Color(sky.top) },
-      horizon: { value: new THREE.Color(sky.horizon) },
-      ground: { value: new THREE.Color(sky.ground) },
+      top: { value: new THREE.Color(sky.top).multiplyScalar(scale) },
+      horizon: { value: new THREE.Color(sky.horizon).multiplyScalar(scale) },
+      ground: { value: new THREE.Color(sky.ground).multiplyScalar(scale) },
       sunDir: { value: new THREE.Vector3(...sky.sunDir).normalize() },
-      sunCol: { value: new THREE.Color(sky.sun) },
+      sunCol: { value: new THREE.Color(sky.sun).multiplyScalar(scale) },
     },
     vertexShader: "varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
     fragmentShader:
@@ -39,13 +67,19 @@ function skyDome(sky) {
 }
 
 export class Engine {
-  constructor(host, overlay, { quality = "high", onReady } = {}) {
+  constructor(host, overlay, { quality = "high", onReady, onLost, onRestored } = {}) {
     this.host = host;
     this.overlay = overlay;
+    const renderer = createRenderer(quality);
+    const gl = renderer.getContext();
+    // Older phones and browsers: WebGL 1, or small texture limits.
+    if (!renderer.capabilities.isWebGL2 || renderer.capabilities.maxTextureSize < 4096) quality = "low";
     this.quality = quality;
-    setGlassQuality(quality);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: false, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === "high" ? 2 : 1.5));
+    this.tier = TIERS[quality];
+    this.webgl = renderer.capabilities.isWebGL2 ? 2 : 1;
+    setGlassQuality(this.tier.glass);
+    setTextureScale(this.tier.texScale);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.tier.dpr));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.shadowMap.enabled = true;
@@ -53,8 +87,36 @@ export class Engine {
     renderer.domElement.className = "mr-canvas";
     renderer.domElement.setAttribute("aria-hidden", "true");
     host.appendChild(renderer.domElement);
-    setAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+    setAnisotropy(Math.min(this.tier.aniso, renderer.capabilities.getMaxAnisotropy() || 1));
     this.renderer = renderer;
+    // Phones reclaim the GPU when the tab is hidden or memory runs short.
+    // Keep the scene and rebuild GPU-side resources when the context returns.
+    this.lost = false;
+    this.onLost = onLost;
+    this.onRestored = onRestored;
+    this.handleLost = (event) => {
+      event.preventDefault();
+      this.lost = true;
+      this.onLost?.();
+    };
+    this.handleRestored = () => {
+      this.lost = false;
+      // Objects from the old context are simply dropped; disposing them would
+      // address GL handles that no longer exist.
+      this.pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.envRT = null;
+      this.sky = null;
+      this.scene.children.filter((o) => o.name === "sky").forEach((o) => this.scene.remove(o));
+      this.applySky();
+      this.applyViewVisibility();
+      this.dirty = true;
+      this.onRestored?.();
+    };
+    // Kept from the start: after a loss the extension can no longer be fetched.
+    this.loseExtension = gl.getExtension("WEBGL_lose_context");
+    renderer.domElement.addEventListener("webglcontextlost", this.handleLost, false);
+    renderer.domElement.addEventListener("webglcontextrestored", this.handleRestored, false);
+
     const scene = new THREE.Scene();
     this.scene = scene;
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.05, 200);
@@ -79,7 +141,7 @@ export class Engine {
     this.hemi = new THREE.HemisphereLight("#fff", "#888", 1);
     this.sun = new THREE.DirectionalLight("#fff", 2.5);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(this.tier.shadow, this.tier.shadow);
     this.sun.shadow.normalBias = 0.025;
     this.sun.shadow.bias = -0.0002;
     this.sun.shadow.radius = 3;
@@ -112,10 +174,11 @@ export class Engine {
     }
     this.sky = skyDome(sky);
     this.scene.add(this.sky);
-    // Environment for reflections: the same sky plus a soft ground.
+    // Environment for reflections: the same sky plus a soft ground, at the
+    // sky's environment strength.
     const envScene = new THREE.Scene();
-    envScene.add(skyDome(sky));
-    const groundDisc = new THREE.Mesh(new THREE.CircleGeometry(60, 32), new THREE.MeshBasicMaterial({ color: sky.ground }));
+    envScene.add(skyDome(sky, sky.env));
+    const groundDisc = new THREE.Mesh(new THREE.CircleGeometry(60, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color(sky.ground).multiplyScalar(sky.env) }));
     groundDisc.rotation.x = -Math.PI / 2;
     groundDisc.position.y = -0.5;
     envScene.add(groundDisc);
@@ -127,7 +190,6 @@ export class Engine {
     this.envRT?.dispose();
     this.envRT = env;
     this.scene.environment = env.texture;
-    this.scene.environmentIntensity = sky.env;
     this.scene.fog = new THREE.Fog(sky.fog, 22, 70);
     this.hemi.color.set(sky.hemiSky);
     this.hemi.groundColor.set(sky.hemiGround);
@@ -162,10 +224,11 @@ export class Engine {
       l.visible = on;
       l.intensity = on ? 2.2 : 0;
     }
-    for (const l of lights.exterior) {
-      l.visible = on;
+    // Each spotlight costs every pixel; phones keep the first few.
+    lights.exterior.forEach((l, i) => {
+      l.visible = on && i < this.tier.spots;
       l.intensity = on ? 5.5 : 0;
-    }
+    });
     for (const m of lights.lamps) m.material.emissiveIntensity = on ? 3 : 0.05;
     this.dirty = true;
   }
@@ -650,6 +713,9 @@ export class Engine {
 
   // ---- High-resolution captures for the PDF design pack ----
   async capturePack({ width = 2000, height = 1250 } = {}) {
+    // Phones render the pack at their tier's size to avoid a memory spike.
+    width = Math.min(width, this.tier.capture[0]);
+    height = Math.min(height, this.tier.capture[1]);
     await texturesReady();
     const r = this.renderer,
       saved = {
@@ -669,7 +735,7 @@ export class Engine {
     this.overlay.hidden = true;
     if (this.dimLines) this.dimLines.visible = false;
     r.setPixelRatio(1);
-    this.sun.shadow.mapSize.set(4096, 4096);
+    this.sun.shadow.mapSize.set(this.tier.captureShadow, this.tier.captureShadow);
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null;
     const shots = {},
@@ -699,7 +765,7 @@ export class Engine {
       const tall = (on) => this.landscape.traverse((o) => o.userData.tall && (o.visible = on));
       shoot("hero", width, height, perspective(new THREE.Vector3(0.95, 0.4, 1.25)));
       // The PDF cover is a wide band (297 x 142mm).
-      shoot("cover", 2400, 1148, perspective(new THREE.Vector3(0.95, 0.36, 1.25), 1.12));
+      shoot("cover", this.tier.cover[0], this.tier.cover[1], perspective(new THREE.Vector3(0.95, 0.36, 1.25), 1.12));
       shoot("front", width, height, perspective(new THREE.Vector3(0.12, 0.22, 1), 1.12));
       shoot("rear", width, height, () => {
         const cam = perspective(c.type === "extension" ? new THREE.Vector3(-1.3, 0.55, 0.55) : new THREE.Vector3(-1, 0.45, -1.15))();
@@ -746,9 +812,9 @@ export class Engine {
       {
         const w = box.max.x - box.min.x,
           d = box.max.z - box.min.z,
-          px = 1600,
+          px = Math.min(1600, this.tier.capture[0]),
           ph = Math.round((px * d) / w);
-        const W = Math.min(px, Math.round((1600 * w) / d)),
+        const W = Math.min(px, Math.round((px * w) / d)),
           H = Math.round((W * d) / w);
         shoot("plan", W, H, () => {
           Object.assign(ortho, { left: box.min.x, right: box.max.x, top: -box.min.z, bottom: -box.max.z, near: 0.1, far: 60 });
@@ -782,7 +848,7 @@ export class Engine {
           u1 = L + ext,
           v0 = -0.25,
           v1 = HEIGHT + 0.35;
-        const W = 1800,
+        const W = this.tier.elev,
           H = Math.round((W * (v1 - v0)) / (u1 - u0));
         shoot(`elev-${wall}`, W, H, () => {
           const mid = wallPoint(c, wall, (u0 + u1) / 2, (v0 + v1) / 2, 12);
@@ -842,6 +908,8 @@ export class Engine {
   dispose() {
     cancelAnimationFrame(this.frame);
     this.resizeObserver.disconnect();
+    this.renderer.domElement.removeEventListener("webglcontextlost", this.handleLost, false);
+    this.renderer.domElement.removeEventListener("webglcontextrestored", this.handleRestored, false);
     this.controls.dispose();
     this.planControls.dispose();
     if (this.building) this.disposeGroup(this.building, true);
@@ -849,6 +917,12 @@ export class Engine {
     this.envRT?.dispose();
     this.pmrem.dispose();
     this.renderer.dispose();
+    // Hand the GPU context back at once: phones cap how many a page may hold.
+    try {
+      if (!this.lost) this.renderer.forceContextLoss();
+    } catch {
+      /* already gone */
+    }
     this.renderer.domElement.remove();
   }
 }

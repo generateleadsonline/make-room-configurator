@@ -272,8 +272,8 @@ export default function App() {
       const r = await fetch("/api/quote", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.saved || !data.quote) {
-        const failure = new Error(data.error || "We couldn't save your design just now. Please try again.");
-        failure.status = r.status;
+        const failure = new Error(data.session === false ? "Please add your details again to see your price." : data.error || "We couldn't save your design just now. Please try again.");
+        failure.status = data.session === false ? 401 : r.status;
         failure.field = data.field;
         throw failure;
       }

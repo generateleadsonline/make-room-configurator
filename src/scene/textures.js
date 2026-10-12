@@ -12,6 +12,15 @@ let anisotropy = 8;
 export function setAnisotropy(n) {
   anisotropy = n;
 }
+// Phones build finish textures at half resolution (a quarter of the memory).
+let texScale = 1;
+const px = (n) => Math.max(64, Math.round(n * texScale));
+export function setTextureScale(s) {
+  if (s !== texScale) {
+    texScale = s;
+    materialCache.clear();
+  }
+}
 export function loadImage(url) {
   if (!imageCache.has(url))
     imageCache.set(
@@ -286,10 +295,8 @@ function planks(img, seed, { rows = 6, rowM = 0.19, lengthM = 2.4, w = 2048, h =
 }
 
 // Profiled steel sheet, drawn rather than photographed so the ribs are crisp.
-function steelSheet(hex, seed) {
-  const w = 1024,
-    h = 256,
-    rnd = seeded(seed),
+function steelSheet(hex, seed, w = 1024, h = 256) {
+  const rnd = seeded(seed),
     colour = makeCanvas(w, h),
     height = makeCanvas(w, h),
     c = colour.getContext("2d"),
@@ -336,10 +343,10 @@ function photoTiled(img, { tileM }) {
 
 const TEXTURE_ROOT = "/textures";
 const recipes = {
-  wood: (f, img) => verticalBoards(img, hashString(f.id)),
-  plank: (f, img) => lapBoards(img, hashString(f.id)),
-  slatted: (f, img) => stretchVertical(img, { widthM: 0.9, relief: 1.3 }),
-  steel: (f) => steelSheet(f.hex, hashString(f.id)),
+  wood: (f, img) => verticalBoards(img, hashString(f.id), { w: px(512), h: px(2048), groove: texScale < 1 ? 2 : 3 }),
+  plank: (f, img) => lapBoards(img, hashString(f.id), { w: px(2048), h: px(768) }),
+  slatted: (f, img) => stretchVertical(img, { widthM: 0.9, relief: 1.3, w: px(768), h: px(2048) }),
+  steel: (f) => steelSheet(f.hex, hashString(f.id), px(1024), px(256)),
 };
 // Make Room's renderer ships its brick maps under swapped names; matched to
 // the swatches by colour (research/live-2026-10-12/inventory.md).
@@ -421,7 +428,7 @@ export function floorMaterial(floorId, onReady) {
   mat.userData.ready = (async () => {
     const img = await loadImage(`${TEXTURE_ROOT}/finish/floor-${f.id}.jpg`);
     if (!img) return mat;
-    const r = planks(img, hashString(f.id));
+    const r = planks(img, hashString(f.id), { w: px(2048), h: px(972) });
     mat.map = texture(r.colour);
     mat.normalMap = texture(normalFromHeight(r.height, 1.6), { colour: false });
     mat.color.set("#ffffff");

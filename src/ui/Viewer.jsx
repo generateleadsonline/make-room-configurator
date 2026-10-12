@@ -13,6 +13,43 @@ const HINTS = {
   plan: "Drag to move · scroll or pinch to zoom",
 };
 const coarse = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 2 = WebGL 2, 1 = WebGL 1 only, 0 = no 3D graphics in this browser.
+function webglSupport() {
+  try {
+    for (const [name, level] of [
+      ["webgl2", 2],
+      ["webgl", 1],
+      ["experimental-webgl", 1],
+    ]) {
+      const gl = document.createElement("canvas").getContext(name);
+      if (gl) {
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+        return level;
+      }
+    }
+  } catch {
+    /* treated as no WebGL */
+  }
+  return 0;
+}
+// Phones and tablets get the lighter tier; very low-memory devices the lightest.
+function pickQuality() {
+  const memory = navigator.deviceMemory;
+  if (memory && memory <= 2) return "low";
+  return coarse() || Math.min(window.innerWidth, window.innerHeight) < 900 ? "medium" : "high";
+}
+const FAILURES = {
+  "no-webgl": {
+    title: "3D graphics are switched off in this browser.",
+    body: "Your choices still save as you go, and your PDF design pack shows every detail. To see your room in 3D, open this page in Safari or Chrome, turn off Lockdown Mode for this site on iPhone, or switch on graphics acceleration in your browser settings.",
+    action: "Try again",
+  },
+  import: { title: "We couldn't load the 3D designer.", body: "Check your connection, then try again. Your design is saved on this device.", action: "Reload the 3D view", reload: true },
+  lost: { title: "Your device paused the 3D view to save memory.", body: "Your design is safe. Tap below to bring it back.", action: "Show my room in 3D" },
+  error: { title: "Something stopped the 3D view.", body: "Your design is saved on this device. Try again, or carry on: your PDF design pack shows every detail.", action: "Try again" },
+};
 
 // The 3D stage and its tools. The engine loads lazily so the panel is usable
 // at once; if WebGL fails the stage shows a real Make Room photograph.
@@ -24,43 +61,114 @@ const Viewer = forwardRef(function Viewer({ config, view, onView, lighting, onLi
     viewRef = useRef(view),
     latest = useRef({ config, lighting, dims });
   const [state, setState] = useState("loading");
+  const [reason, setReason] = useState(null);
   const [full, setFull] = useState(false);
+  const life = useRef({ disposed: false, timer: null, rebuilds: 0, quality: null });
   viewRef.current = view;
   // The engine loads lazily; it must start from the latest state, not the first.
   latest.current = { config, lighting, dims };
 
   useImperativeHandle(ref, () => ({
     capturePack: (opts) => engine.current?.capturePack(opts) ?? Promise.resolve(null),
-    ready: () => !!engine.current,
+    ready: () => !!engine.current && !engine.current.lost,
   }));
 
-  useEffect(() => {
-    let disposed = false;
-    import("../scene/engine.js")
-      .then(({ Engine }) => {
-        if (disposed) return;
+  const fail = (why, err) => {
+    setReason(why);
+    setState("failed");
+    if (err) console.warn("3D view unavailable:", why, err?.message || err);
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ event: "make_room_3d_failed", reason: why });
+  };
+  const teardown = () => {
+    clearTimeout(life.current.timer);
+    engine.current?.dispose();
+    engine.current = null;
+  };
+  // Builds (or rebuilds) the engine on a fresh canvas.
+  const start = async () => {
+    teardown();
+    setState("loading");
+    const support = webglSupport();
+    if (!support) return fail("no-webgl");
+    let mod;
+    for (let attempt = 0; !mod; attempt++) {
+      try {
+        mod = await import("../scene/engine.js");
+      } catch (err) {
+        if (attempt >= 1) return fail("import", err);
+        await wait(1200);
+      }
+    }
+    if (life.current.disposed) return;
+    life.current.quality ||= support === 1 ? "low" : pickQuality();
+    let e;
+    try {
+      e = new mod.Engine(host.current, overlay.current, {
+        quality: life.current.quality,
+        onReady: () => setState("ready"),
+        onLost: () => recover(),
+        onRestored: () => {
+          clearTimeout(life.current.timer);
+          setState("ready");
+        },
+      });
+    } catch (err) {
+      return fail(webglSupport() ? "error" : "no-webgl", err);
+    }
+    engine.current = e;
+    window.__mr = e;
+    try {
+      e.setConfig(latest.current.config);
+      e.setView(viewRef.current, { animate: false });
+      e.setLighting(latest.current.lighting);
+      e.setDims(latest.current.dims);
+    } catch (err) {
+      // A device that cannot build the full scene retries once at the lightest tier.
+      teardown();
+      if (life.current.quality !== "low") {
+        life.current.quality = "low";
+        return start();
+      }
+      return fail("error", err);
+    }
+  };
+  // The browser took the GPU back (tab hidden, screen locked, memory). Wait
+  // for it to return the context; if it does not, rebuild on a new canvas.
+  const recover = () => {
+    setState("restoring");
+    clearTimeout(life.current.timer);
+    const attempt = (stage) => {
+      const e = engine.current;
+      if (!e || !e.lost || life.current.disposed) return;
+      if (document.visibilityState === "hidden") {
+        life.current.timer = setTimeout(() => attempt(stage), 1000);
+        return;
+      }
+      if (stage === 0) {
         try {
-          const small = coarse() && Math.min(window.innerWidth, window.innerHeight) < 900;
-          const e = new Engine(host.current, overlay.current, { quality: small ? "medium" : "high", onReady: () => setState("ready") });
-          engine.current = e;
-          window.__mr = e;
-          e.setConfig(latest.current.config);
-          e.setView(viewRef.current, { animate: false });
-          e.setLighting(latest.current.lighting);
-          e.setDims(latest.current.dims);
-          e.renderer.domElement.addEventListener("webglcontextlost", (ev) => {
-            ev.preventDefault();
-            setState("failed");
-          });
+          e.loseExtension?.restoreContext();
         } catch {
-          setState("failed");
+          /* only possible for some losses; browsers restore the rest themselves */
         }
-      })
-      .catch(() => setState("failed"));
+        life.current.timer = setTimeout(() => attempt(1), 2500);
+      } else if (life.current.rebuilds < 3) {
+        life.current.rebuilds++;
+        // Memory pressure is the usual cause: step down a tier, and to the
+        // lightest one if the device keeps reclaiming the context.
+        life.current.quality = life.current.rebuilds > 1 ? "low" : life.current.quality === "high" ? "medium" : life.current.quality;
+        start();
+      } else fail("lost");
+    };
+    life.current.timer = setTimeout(() => attempt(0), 1500);
+  };
+
+  useEffect(() => {
+    life.current.disposed = false;
+    start();
     return () => {
-      disposed = true;
-      engine.current?.dispose();
-      engine.current = null;
+      life.current.disposed = true;
+      teardown();
     };
     // The engine is created once; later changes flow through the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,12 +230,33 @@ const Viewer = forwardRef(function Viewer({ config, view, onView, lighting, onLi
           Building your room in 3D…
         </div>
       )}
+      {state === "restoring" && (
+        <div className="viewer-loading viewer-loading--soft" role="status">
+          <span className="viewer-spinner" />
+          Reconnecting your 3D view…
+        </div>
+      )}
       {state === "failed" && (
-        <div className="viewer-fallback" role="status">
+        <div className="viewer-fallback" role="alert">
           <img src="/assets/real-room.webp" alt="A finished Make Room garden room" />
-          <p>
-            <strong>3D isn't available on this device.</strong> Your choices still save as you go, and your design pack shows every detail.
-          </p>
+          <div className="viewer-fallback-card">
+            <strong>{FAILURES[reason]?.title}</strong>
+            <span>{FAILURES[reason]?.body}</span>
+            <button
+              type="button"
+              className="button button--primary button--sm"
+              onClick={() => {
+                if (FAILURES[reason]?.reload) location.reload();
+                else {
+                  life.current.rebuilds = 0;
+                  start();
+                }
+              }}
+            >
+              <RotateCcw size={15} /> {FAILURES[reason]?.action}
+            </button>
+            <small>Code MR-3D-{String(reason).toUpperCase()}</small>
+          </div>
         </div>
       )}
       <div className="viewer-top">
