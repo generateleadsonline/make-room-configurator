@@ -1,24 +1,33 @@
-# Make Room configurator QA
+# Make Room configurator QA, v2 upgrade (12 October 2026)
 
-Checked 11 October 2026 against implementation commit `bbb96bec08bea9fa47f127001c8eda0637d580f8`, Netlify deploy `6acb6552213b7e00081c8608` (ready).
+Branch `upgrade-v2`, merged to `main`. The previous release's QA is in git history (commit 34237c7).
 
-Live: https://make-room-configurator.netlify.app/configurator/
-Repository: https://github.com/generateleadsonline/make-room-configurator
+## Option coverage (3D)
 
-## Results
+`tools/qa-options.mjs` builds every option into the live engine in the browser and checks the right part of the building changed: **795 checks, 0 failures**.
 
-- Production build passes. Ten meaningful local tests pass: private enquiry/PDF behaviour and an independent comparison of every width/depth combination and 35 finish choices against the extracted live catalogue.
-- All 32 live API checks pass, covering rejected or missing enquiries, durable receipt storage, session ownership, estimate revisions, idempotency, private PDF save/download, cross-origin protections and cache headers. See `live-api-qa.json` for individual outcomes. Earlier API test records were removed after verification.
-- Live browser journey passes: purpose/dimension controls, front/plan/interior preview controls, day/evening state, blank-form validation, synthetic valid enquiry, £15,700 default published-guide estimate, PDF download, reload/session restoration and revision without re-entering contact details. A 4m × 4m revision is preserved and returns £21,000 from the same published guide model.
-- Responsive live UI inspected at 375px mobile, 768px tablet and 1280px desktop. Width/depth buttons and keyboard slider input update the rendered design. Mobile fields, validation and submit button fit the frame. Measured mobile document width375px / scroll width367px and desktop viewport1280px / scroll width1272px: no horizontal overflow. Mobile/tablet widths use a local QA iframe loading the production URL because the browser viewport override did not alter the actual viewport.
-- No live browser warning/error logs were reported during the verified journey.
-- Actual live PDF downloaded, saved under `output/pdf/`, and all seven pages rendered with Poppler and visually inspected. 594,010bytes; A4; 22 working URI annotations. Verified amount, January2024 source caveat, room renders, front elevation, dimensioned plan, 1.68m French-door width, specification, electrical package, showroom details and config-only QR/reopen links. No name/email/contact details are included. No clipping or overlap observed.
-- Desktop and mobile evidence saved under ignored `qa/screenshots/`. Synthetic UI receipt is marked explicitly as QA and excluded from any contact workflow.
+- All 32 garden-room finishes on every wall, all extension finishes (including 3 brick slips) on the three extension walls, and a four-finish mixed building. Steel is refused on extensions and brick on garden rooms. An extension has no clad back wall.
+- All 21 doors and windows, in every frame material (aluminium/uPVC) and colour (black/anthracite). The built frame width matches the catalogue width, and black and anthracite render differently. Openings sit on each of the four walls. A 3.45m bifold is refused on a 2.8m wall, and a back-wall opening on an extension.
+- Overhang on each wall at 300mm and 600mm (the roof extends exactly, two porch wings, a soffit) and decking on each wall at 600mm and 5m (exact projection, 100mm thick). All 5 decking colours, all 4 floors.
+- Electrical packages: downlights 0/4/6/8, external downlights 0/0/2/4 and up/down lights 0/2/2/4 match Make Room's package lists.
+- All 4 uses furnish the room. An extension renders against a house wall. All 135 legal width × length combinations build at their exact size.
 
-## Scope and launch requirements
+## Unit tests
 
-This is a review deployment under GLO with noindex headers. It does not replace the client's existing embedded configurator. The current source service hides numeric prices; the server therefore uses clearly dated January2024 public examples as planning guidance, with unpriced options referred to a specialist. Client approval of a current rate card is needed for commercial quotes.
+`npm test`: 26 pass. They cover UK phone, name, email and postcode rules (Ofcom drama numbers and 08/09 refused), strict v2 config validation, pricing (12m² → £16,500, a bi-fold allowance per bi-fold, extensions and >24m² → tailored quote), the quote, PDF and request handlers, catalogue parity with `research/catalogue.json` (every finish and product id, every width/length pair), compact share links, old v1 link migration, making room on a full wall, and extension rules.
 
-Enquiries and owned PDFs are stored privately in Netlify Blobs. Client CRM routing, automated notifications and a retention policy are not configured. These need a client-approved destination before acquisition campaigns. No email was sent during QA.
+Fuzzing: 5,000 random designs normalise idempotently, and the server accepts 2,000 normalised random designs.
 
-Conversion improvement is a testable hypothesis, not an achieved uplift. `cro-plan.md` defines the funnel events, qualified-lead metrics and controlled-test approach. No new competitor quote attachment was available in this chat; research used the accessible local Noah example and recorded that limitation.
+## Journeys (local `netlify dev`, headless Chrome with real WebGL)
+
+- Price form: blank submit flags all five required fields. A sample drama number is refused. `+44 (0)7911 123456` is recognised as a UK mobile and tidied to `07911 123456`. A valid submit returns the saved reference and "from £19,200" for the default design.
+- Callback request (phone layout): saved with an MR-REQ reference and the design attached.
+- PDF design pack: 8 pages, 2.7MB, 12 renders (cover, hero, front, back, top, dusk, two interiors, plan, four elevations). Pages were rasterised and reviewed: dimensions on the plan and elevations, opening tags, swatches, schedule, QR to the compact design link. Fonts are Make Room's Almarena.
+- Layout at 320, 375, 768, 1024, 1440 and 1920px wide: no horizontal overflow on any step, no console errors. The welcome card, tour, drawer and all five steps were captured at each size.
+- Design gallery (cedar, black slatted, thermowood, Cedral lap, steel, brick extension, oak slatted extension, mixed gym) was compared with the photographs in `research/website-2026-10-12`.
+
+## Known limits
+
+- Prices come from Make Room's published January 2024 guide; the live tool has no rate card.
+- The phone check confirms a valid UK number format and excludes reserved ranges. It does not ring the number or send an SMS.
+- No email or CRM delivery is configured; enquiries, requests and PDFs are stored in Netlify Blobs.

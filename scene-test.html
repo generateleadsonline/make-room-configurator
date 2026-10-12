@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scene test</title>
+<style>html,body{margin:0;height:100%;font-family:sans-serif}#host{position:absolute;inset:0}#host canvas{width:100%;height:100%;display:block}#ov{position:absolute;inset:0;pointer-events:none}.mr-label{position:absolute;left:0;top:0;background:#fff;border-radius:99px;padding:2px 8px;font:600 12px sans-serif}</style></head>
+<body><div id="host"></div><div id="ov"></div><script type="module">
+import { Engine } from "/src/scene/engine.js";
+import { normalizeConfig, DEFAULT_CONFIG } from "/src/catalog.js";
+const q = new URLSearchParams(location.search);
+let c = normalizeConfig(q.get("c") ? JSON.parse(q.get("c")) : DEFAULT_CONFIG);
+const e = new Engine(document.getElementById("host"), document.getElementById("ov"));
+e.setConfig(c);
+if (q.get("view")) e.setView(q.get("view"), { animate: false });
+if (q.get("light")) e.setLighting(q.get("light"));
+if (q.get("dims")) e.setDims(true);
+window.__e = e; window.__set = (patch) => { c = normalizeConfig({ ...c, ...patch }); e.setConfig(c); };
+</script></body></html>

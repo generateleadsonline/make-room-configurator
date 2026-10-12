@@ -1,23 +1,473 @@
-import React,{useState,useEffect,useRef,lazy,Suspense} from 'react';
-import {ArrowLeft,ArrowRight,Check,ChevronDown,Plus,Minus,RotateCcw,Maximize2,Sun,Moon,LockKeyhole,Download,Phone,ShieldCheck,Layers,BriefcaseBusiness,Dumbbell,Palette,Armchair,Copy,CheckCheck,FileText,PenLine,Move3D,Ruler,Eye,LayoutGrid,Info} from 'lucide-react';
-import {DEFAULT_CONFIG,WIDTHS,DEPTHS,USES,CLADDINGS,FLOORS,ELECTRICAL,SIDES,normalizeConfig,readSharedDesign,designCode,summaryRows,allowedDepths,allowedDoors,claddingFinishes,finish} from './catalog';
-const RoomPreview=lazy(()=>import('./RoomPreview.jsx'));
-const useIcons={office:BriefcaseBusiness,gym:Dumbbell,studio:Palette,multi:Armchair};
-const STEPS=['Your space','Your style','The details','Your estimate'];
-function SizeSlider({label,value,values,onChange}){const index=values.indexOf(value);return <div className="size-control"><div className="control-title"><label htmlFor={label}>{label}</label><output htmlFor={label}>{String(value)}<small> m</small></output></div><div className="slider-row"><button className="nudge" aria-label={`Decrease ${label.toLowerCase()}`} disabled={index===0} onClick={()=>onChange(values[index-1])}><Minus size={16}/></button><input id={label} type="range" min="0" max={values.length-1} step="1" value={index} style={{'--fill':`${index/(values.length-1)*100}%`}} aria-valuetext={`${value} metres`} onChange={e=>onChange(values[Number(e.target.value)])}/><button className="nudge" aria-label={`Increase ${label.toLowerCase()}`} disabled={index===values.length-1} onClick={()=>onChange(values[index+1])}><Plus size={16}/></button></div><div className="range-labels"><span>{values[0]}m</span><span>{values.at(-1)}m</span></div></div>}
-function Choices({label,options,value,onChange,visual=false}){return <fieldset className={`choices ${visual?'visual':''}`}><legend>{label}</legend><div className="choice-grid">{options.map(o=><button key={o.id} type="button" className={`choice ${value===o.id?'selected':''}`} aria-pressed={value===o.id} onClick={()=>onChange(o.id)}>{o.color&&<span className={`swatch ${o.id}`} style={{'--swatch':o.color}}/>}<span className="choice-copy"><strong>{o.label}</strong>{o.detail&&<small>{o.detail}</small>}</span>{value===o.id&&<span className="selected-check"><Check size={14}/></span>}</button>)}</div></fieldset>}
-function SideSelector({title,values,onChange}){return <fieldset className="side-selector"><legend>{title}</legend><div className="side-buttons">{SIDES.map(side=><button key={side} aria-pressed={values.includes(side)} onClick={()=>onChange(values.includes(side)?values.filter(x=>x!==side):[...values,side])}>{values.includes(side)?<Check size={14}/>:<Plus size={14}/>} {side}</button>)}</div><small>Select the sides you would like. Leave all off for none.</small></fieldset>}
-function App(){const [config,setConfig]=useState(()=>{const shared=readSharedDesign();if(shared)return shared;try{return normalizeConfig(JSON.parse(localStorage.getItem('make-room-design')||'null')||DEFAULT_CONFIG)}catch{return {...DEFAULT_CONFIG}}});const [step,setStep]=useState(0);const [view,setView]=useState('perspective');const [lighting,setLighting]=useState('day');const [quote,setQuote]=useState(null);const [unlocked,setUnlocked]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [errorField,setErrorField]=useState('');const [previousDesign,setPreviousDesign]=useState(null);const [pdfBusy,setPdfBusy]=useState(false);const [copied,setCopied]=useState(false);const [expanded,setExpanded]=useState(false);const [draftNotice,setDraftNotice]=useState(false);const [lead,setLead]=useState({name:'',email:'',postcode:'',phone:'',timeline:'',notes:'',marketing:false});const [extraFields,setExtraFields]=useState(false);const [allFinishes,setAllFinishes]=useState(false);const previewRef=useRef(null);const formRef=useRef(null);const panelRef=useRef(null);const requestId=useRef(crypto.randomUUID());const area=(config.width*config.depth).toFixed(1);const quoteMatches=quote&&JSON.stringify(quote.config)===JSON.stringify(config);
-useEffect(()=>{try{localStorage.setItem('make-room-design',JSON.stringify(config))}catch{}},[config]);
-useEffect(()=>{let active=true;track('started');fetch('/api/quote',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({config,requestId:crypto.randomUUID(),botField:''})}).then(async response=>{if(!response.ok)return;const data=await response.json();if(active&&data.saved&&data.quote){setQuote(data.quote);setUnlocked(true);}}).catch(()=>{});return()=>{active=false};},[]);
-useEffect(()=>{if(step===3){setExpanded(false)}},[step]);
-function update(key,value){if(key==='cladding')setAllFinishes(false);setConfig(c=>normalizeConfig({...c,[key]:value}));setError('');}
-function go(n){setStep(n);setError('');if(matchMedia('(max-width: 900px)').matches)requestAnimationFrame(()=>panelRef.current?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'start'}));}
-async function submit(e){e?.preventDefault();if(busy)return;setBusy(true);setError('');setErrorField('');try{const response=await fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({config,...(!unlocked?{lead,requestId:requestId.current}:{}),botField:formRef.current?.elements['website']?.value||''})});const data=await response.json();if(!response.ok||!data.saved||!data.quote){const failure=new Error(data.error||'Your request could not be saved. Please try again.');failure.status=response.status;failure.field=data.field;throw failure;}setQuote(data.quote);setUnlocked(true);requestId.current=crypto.randomUUID();track('quote_unlocked',{step:4});}catch(err){if(err.status===401){setUnlocked(false);requestId.current=crypto.randomUUID();}if(err.field){setErrorField(err.field);requestAnimationFrame(()=>document.getElementById(err.field)?.focus());}setError(err.message||'We could not connect. Your design is saved here; please try again.')}finally{setBusy(false)}}
-function track(event,details={}){window.dataLayer=window.dataLayer||[];window.dataLayer.push({event:`make_room_${event}`,...details});}
-async function download(){if(!quoteMatches||pdfBusy)return;setPdfBusy(true);setError('');try{const {buildDesignPack}=await import('./pdf.js');const images=previewRef.current?.captureAll?await previewRef.current.captureAll():{};const blob=await buildDesignPack(quote,images);const save=await fetch('/api/design-pack',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/pdf','X-Design-Reference':quote.designReference},body:blob});const data=await save.json();if(!save.ok||!data.downloadUrl)throw new Error(data.error||'We could not save the PDF. Please try again.');const file=await fetch(data.downloadUrl,{credentials:'same-origin'});if(!file.ok)throw new Error('We could not download the PDF. Please try again.');const url=URL.createObjectURL(await file.blob());const a=document.createElement('a');a.href=url;a.download=`${quote.reference}-your-garden-room.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);track('pdf_download');}catch(err){setError(err.message)}finally{setPdfBusy(false)}}
-async function copy(){try{await navigator.clipboard.writeText(`${location.origin}/configurator/?design=${designCode(config)}`);setCopied(true);setTimeout(()=>setCopied(false),2400);track('design_shared')}catch{setError('Sharing is unavailable in this browser. Your design is still saved on this device.')}}
-function restart(){setPreviousDesign(config);setConfig({...DEFAULT_CONFIG});setView('perspective');setLighting('day');setQuote(null);go(0);setDraftNotice(true);setTimeout(()=>setDraftNotice(false),3000)}
-const purpose=USES.find(x=>x.id===config.use);const canFit=config.width>=2.8&&config.depth>=2.8;
-return <><a className="skip-link" href="#design-controls">Skip to design controls</a><header className="site-header"><a href="https://www.makeroomoutside.co.uk/" className="brand" aria-label="Make Room Outside Living home"><img src="/assets/make-room-logo.svg" alt="Make Room Outside Living" width="112" height="77"/></a><div className="header-message"><span>Space for a different way of living.</span><span className="header-sub">Your garden. Your room. Your possibilities.</span></div><a className="phone-link" href="tel:01422580172"><Phone size={16}/><span>01422 580172</span></a><a className="exit-link" href="https://www.makeroomoutside.co.uk/">Back to Make Room <ArrowRight size={15}/></a></header><main><section className="intro"><div><h1>Make room for <em>your life.</em></h1><p>Design your own garden room. Make it yours, inside and out.</p></div><div className="intro-promise"><span><Check size={15}/>Free, personal design pack</span><span><Check size={15}/>No obligation to buy</span></div></section><nav className="step-nav" aria-label="Design steps">{STEPS.map((s,i)=><button key={s} className={`${step===i?'current':''} ${i<step?'complete':''}`} aria-current={step===i?'step':undefined} onClick={()=>go(i)}><span className="step-number">{i<step?<Check size={13}/>:i+1}</span><span>{s}</span>{i<3&&<span className="step-line"/>}</button>)}</nav><div className={`designer-layout ${expanded?'expanded':''}`}><section className="preview-side" aria-label="Your room preview"><div className="preview-wrap"><div className="preview-top"><div className="preview-title"><span className="live-dot"/>Your room, taking shape</div><div className="preview-top-actions"><button title="Reset design" aria-label="Reset design to the starting room" onClick={restart}><RotateCcw size={17}/></button><button title={expanded?'Close large preview':'Enlarge preview'} aria-label={expanded?'Close large preview':'Enlarge preview'} aria-pressed={expanded} onClick={()=>setExpanded(!expanded)}><Maximize2 size={17}/></button></div></div><div className="room-stage"><Suspense fallback={<div className="preview-loading"><Layers size={34}/><p>Preparing your garden room…</p></div>}><RoomPreview ref={previewRef} config={config} view={view} lighting={lighting}/></Suspense></div><div className="preview-help"><Move3D size={15}/><span>{view==='perspective'?'Drag to explore · scroll to zoom':view==='plan'?'A plan of your room · external dimensions shown':view==='inside'?'Your room, from the inside':'Your front elevation'}</span></div><div className="view-toolbar"><div className="view-buttons" role="group" aria-label="Preview view">{[['perspective','3D view',Layers],['front','Front',Eye],['plan','Floor plan',LayoutGrid],['inside','Inside',Armchair]].map(([id,label,Icon])=><button key={id} className={view===id?'active':''} aria-pressed={view===id} onClick={()=>setView(id)}><Icon size={16}/>{label}</button>)}</div><button className="light-toggle" aria-label={lighting==='day'?'Show evening lighting':'Show daylight'} title={lighting==='day'?'Evening lighting':'Daylight'} onClick={()=>setLighting(lighting==='day'?'evening':'day')}>{lighting==='day'?<Moon size={17}/>:<Sun size={17}/>}</button></div></div><div className="preview-summary"><div><Ruler size={17}/><strong>{config.width} × {config.depth}m</strong><span>{area} m² footprint</span></div><button onClick={copy}>{copied?<CheckCheck size={15}/>:<Copy size={15}/>} {copied?'Link copied':'Save & share design'}</button></div><div className="preview-bottom"><div className="brand-assurance"><ShieldCheck size={23}/><div><strong>Built in the UK. Made for you.</strong><span>25 years of outdoor living expertise.</span></div></div><div className="locked-preview"><LockKeyhole size={16}/><span>{quoteMatches?'Your estimate is ready':'Your personal estimate is ready when you are.'}</span>{step!==3&&<button onClick={()=>go(3)}>Reveal it <ArrowRight size={15}/></button>}</div></div><p className="render-note">Illustrative preview. Materials, openings and internal space are confirmed with your design specialist.</p></section><section ref={panelRef} id="design-controls" className="controls-side" tabIndex="-1"><div className="panel-heading"><span className="step-caption">Step {step+1} of 4</span><h2>{['A space that fits you.','A look you’ll love.','Make yourself at home.','Your design. Your next step.'][step]}</h2><p>{['Start with how you’ll use your room, then find your fit.','Choose the character of your room. Watch it come to life.','Choose the light, comfort and finishing touches.','Reveal your personal estimate and get a design pack to keep.'][step]}</p></div><div className="panel-content">{step===0&&<><fieldset className="purpose-picker"><legend>What will you make room for?</legend><div>{USES.map(u=>{const Icon=useIcons[u.id];return <button key={u.id} className={config.use===u.id?'selected':''} onClick={()=>update('use',u.id)} aria-pressed={config.use===u.id}><Icon size={21}/><span><strong>{u.label}</strong><small>{u.detail}</small></span>{config.use===u.id&&<Check size={16}/>}</button>})}</div></fieldset><div className="section-divider"/><div className="size-heading"><h3>Find your perfect fit</h3><span>External dimensions</span></div><SizeSlider label="Width" value={config.width} values={WIDTHS} onChange={v=>update('width',v)}/><SizeSlider label="Depth" value={config.depth} values={allowedDepths(config.width)} onChange={v=>update('depth',v)}/><div className="fit-note"><LayoutGrid size={19}/><div><strong>{area} m² to make your own</strong><p>{config.use==='office'?(canFit?'Room for a generous desk, storage and space to switch off.':'A compact work space. Your specialist can check desk and access clearances.'):config.use==='gym'?(canFit?'A versatile footprint for your equipment and clear movement space.':'A compact fitness space; check equipment and movement clearances.'):config.use==='studio'?'Imagine your favourite chair, a creative corner and time for yourself.':'A flexible starting point for your family’s changing needs.'}</p></div></div><details className="help-detail"><summary>Need a custom size or an extension?<ChevronDown size={15}/></summary><p>These sliders use Make Room’s modular sizes. Your specialist can explore bespoke dimensions and custom heights.</p><Choices label="Building type" value={config.type} options={[{id:'garden',label:'Garden room'},{id:'extension',label:'Modular extension'}]} onChange={v=>update('type',v)}/></details>{Number(area)>30&&<div className="info-note"><Info size={17}/><p>At over 30 m², your specialist will need to check building regulations and planning requirements for your site.</p></div>}<p className="dimension-note">Standard height: <strong>2.5m</strong>. Allow space around the building for installation and maintenance.</p></>}{step===1&&<><Choices label="Exterior cladding" options={config.type==='extension'?CLADDINGS.filter(x=>x.id!=='steel'):CLADDINGS} value={config.cladding} onChange={v=>update('cladding',v)} visual/>{!['cedar','thermowood'].includes(config.cladding)&&<><Choices label="Finish preference" options={(allFinishes?claddingFinishes(config).filter((x,i,arr)=>arr.findIndex(y=>y.label===x.label)===i):claddingFinishes(config).filter((x,i,arr)=>arr.findIndex(y=>y.label===x.label)===i).slice(0,4))} value={config.claddingColor} onChange={v=>update('claddingColor',v)} visual/>{claddingFinishes(config).length>4&&<button className="text-button" onClick={()=>setAllFinishes(!allFinishes)}>{allFinishes?'Show fewer finishes':'Explore all available finishes'}<ChevronDown size={15}/></button>}</>}<div className="material-story"><img src="/assets/real-room.webp" alt="A finished Make Room garden room with timber cladding" loading="lazy"/><div><strong>Natural character. Your own style.</strong><p>{config.cladding==='cedar'||config.cladding==='thermowood'?'Timber brings warmth and changes naturally over time. Your specialist can help you choose the right finish.':'Composite and steel offer a contemporary, low-maintenance finish. Colour availability is confirmed by your specialist.'}</p></div></div><div className="section-divider"/><Choices label="Laminate flooring" options={FLOORS} value={config.floor} onChange={v=>update('floor',v)} visual/><button className="text-button" onClick={()=>setView('inside')}>See your interior <ArrowRight size={15}/></button></>}{step===2&&<><Choices label="Let the outside in" value={config.doors} options={allowedDoors(config.width)} onChange={v=>update('doors',v)}/><Choices label="Side windows" value={config.windows} options={[{id:'none',label:'No side windows'},{id:'left',label:'Left side'},{id:'right',label:'Right side'},{id:'both',label:'Both sides'}]} onChange={v=>update('windows',v)}/><p className="dimension-note">Viewed from the front. Exact opening sizes and positions are checked before your final quote.</p><div className="section-divider"/><Choices label="Electrical package" value={config.electrical} options={ELECTRICAL} onChange={v=>update('electrical',v)}/><details className="help-detail"><summary>What’s in this electrical package?<ChevronDown size={15}/></summary><ul>{ELECTRICAL.find(x=>x.id===config.electrical).items.map(x=><li key={x}><Check size={14}/>{x}</li>)}</ul><p>The supply connection from your home is assessed separately.</p></details><div className="section-divider"/><SideSelector title="Roof overhang" values={config.overhang} onChange={v=>update('overhang',v)}/><SideSelector title="Decking" values={config.decking} onChange={v=>update('decking',v)}/></>}{step===3&&<>{!quoteMatches&&<><div className="pack-preview"><div className="mini-pack"><img src="/assets/make-room-logo.svg" alt=""/><span>Your room.<br/>Your possibilities.</span><div/><small>YOUR PERSONAL DESIGN PACK</small></div><div><strong>Something to get excited about.</strong><ul><li><Check size={14}/>Your personal price estimate</li><li><Check size={14}/>Your 3D room & dimensioned plan</li><li><Check size={14}/>A detailed specification to keep</li></ul><span>Free. Personal. No obligation.</span></div></div><details className="review-details"><summary>Review your design <span>{config.width} × {config.depth}m<ChevronDown size={15}/></span></summary><dl>{summaryRows(config).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl><button className="text-button" onClick={()=>go(0)}><PenLine size={14}/>Edit your design</button></details>{!unlocked?<form ref={formRef} onSubmit={submit} className="lead-form"><h3>Where should we save your design?</h3><p>Just a few details to reveal your estimate and download your pack.</p><div className="field"><label htmlFor="name">Your name</label><input aria-invalid={errorField==='name'} aria-describedby={errorField==='name'?'form-error':undefined} id="name" name="name" autoComplete="name" required minLength="2" maxLength="100" value={lead.name} onChange={e=>setLead({...lead,name:e.target.value})} placeholder="e.g. Alex Taylor"/></div><div className="field"><label htmlFor="email">Email address</label><input aria-invalid={errorField==='email'} aria-describedby={errorField==='email'?'form-error':undefined} id="email" name="email" type="email" autoComplete="email" required maxLength="254" value={lead.email} onChange={e=>setLead({...lead,email:e.target.value})} placeholder="alex@example.com"/></div><div className="field"><label htmlFor="postcode">Installation postcode</label><input aria-invalid={errorField==='postcode'} aria-describedby={errorField==='postcode'?'form-error':undefined} id="postcode" name="postcode" autoComplete="postal-code" required maxLength="12" value={lead.postcode} onChange={e=>setLead({...lead,postcode:e.target.value.toUpperCase()})} placeholder="e.g. HX3 0UA"/><small>Helps us understand the location of your project.</small></div><div className="honey" aria-hidden="true"><label>Leave this empty<input name="website" tabIndex="-1" autoComplete="off"/></label></div><button type="button" className="optional-toggle" onClick={()=>setExtraFields(!extraFields)}>{extraFields?<Minus size={15}/>:<Plus size={15}/>}Add project details <small>(optional)</small></button>{extraFields&&<><div className="field"><label htmlFor="phone">Phone number <span>optional</span></label><input id="phone" type="tel" autoComplete="tel" maxLength="30" value={lead.phone} onChange={e=>setLead({...lead,phone:e.target.value})}/></div><div className="field"><label htmlFor="timeline">When are you thinking of building?</label><select id="timeline" value={lead.timeline} onChange={e=>setLead({...lead,timeline:e.target.value})}><option value="">Choose if you know</option><option>As soon as possible</option><option>Within 3 months</option><option>Within 6 months</option><option>Just exploring</option></select></div><div className="field"><label htmlFor="notes">Anything you’d like us to know?</label><textarea id="notes" rows="3" maxLength="1200" value={lead.notes} onChange={e=>setLead({...lead,notes:e.target.value})}/></div></>}<label className="checkbox"><input type="checkbox" checked={lead.marketing} onChange={e=>setLead({...lead,marketing:e.target.checked})}/><span>I’d also like occasional Make Room news and inspiration. <small>Optional. Unsubscribe at any time.</small></span></label><p className="privacy-note"><LockKeyhole size={13}/><span>We’ll save your design request so the project team can review it. See how we use your details in our <a href="/privacy.html" target="_blank" rel="noopener">privacy notice</a>.</span></p>{error&&<div id="form-error" role="alert" className="error-message">{error}</div>}<button className="primary full" disabled={busy} type="submit">{busy?'Saving your design…':'Reveal my estimate & design pack'}{!busy&&<ArrowRight size={18}/>}</button><p className="form-reassurance"><ShieldCheck size={14}/> No payment. No commitment. Your design stays yours.</p></form>:<div className="recalculate"><p>Your details are already saved. Update your estimate for this design.</p>{error&&<div id="form-error" role="alert" className="error-message">{error}</div>}<button className="primary full" disabled={busy} onClick={()=>submit()}>{busy?'Updating your estimate…':'Update my estimate'}<ArrowRight size={17}/></button></div>}</>}{quoteMatches&&<div className="quote-result"><div className="success-note"><CheckCheck size={18}/><span>Your design request is saved.</span></div><h3>Made for your kind of living.</h3><div className="price-reveal"><span>{quote.priceLabel||'Your indicative estimate'}</span><strong>{quote.total&&<small className="price-from">From </small>}{quote.total?new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0}).format(quote.total):'Specialist quote'}</strong><small>{quote.priceNote||'Including VAT · subject to site survey and final specification'}</small></div>{quote.sourceUrl&&<a className="source-price" href={quote.sourceUrl} target="_blank" rel="noopener">Based on Make Room’s published price guide <ArrowRight size={12}/></a>}<p>{quote.explanation||'Your specialist will review the design, access and site preparation with you before confirming your final price.'}</p>{quote.items?.length>0&&<dl className="price-breakdown">{quote.items.map(x=><div key={x.label}><dt>{x.label}</dt><dd>{x.amount?new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0}).format(x.amount):x.value||'Included'}</dd></div>)}</dl>}<button className="primary full" onClick={download} disabled={pdfBusy}>{pdfBusy?'Preparing your design pack…':<>Download my design pack <Download size={18}/></>}</button><small className="pdf-hint">An illustrated PDF, ready to save or share.</small>{error&&<div id="form-error" role="alert" className="error-message">{error}</div>}<div className="next-step"><strong>Let’s make it a reality.</strong><p>Visit our Halifax Show Village and experience a Make Room garden room for yourself.</p><a href="https://www.makeroomoutside.co.uk/our-show-villages/halifax/" target="_blank" rel="noopener">Plan a showroom visit <ArrowRight size={15}/></a><a href="tel:01422580172"><Phone size={15}/>01422 580172</a></div><details className="review-details"><summary>Your full specification<ChevronDown size={15}/></summary><dl>{summaryRows(config).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl></details><button className="text-button" onClick={()=>go(0)}><PenLine size={15}/>Keep exploring your design</button><p className="reference">Design reference: {quote.reference}</p></div>}</> }</div>{step<3&&<div className="panel-footer">{step>0?<button className="back-button" onClick={()=>go(step-1)}><ArrowLeft size={17}/>Back</button>:<span className="autosave"><Check size={13}/>Design saved on this device</span>}<button className="primary" onClick={()=>{track('step_completed',{step:step+1});go(step+1)}}>{['Choose your style','Add the details','Get my estimate'][step]}<ArrowRight size={17}/></button></div>}</section></div><section className="after-designer"><div><h2>A little more space.<br/><em>A lot more possibility.</em></h2><p>A room for focus. A place to recharge. Somewhere that feels entirely yours. Designed and built with the care you’d expect from Make Room.</p><a href="https://www.makeroomoutside.co.uk/inspiration/" target="_blank" rel="noopener">Explore real Make Room projects <ArrowRight size={16}/></a></div><img src="/assets/real-room.webp" alt="Make Room garden rooms built with natural timber finishes" loading="lazy"/></section><footer className="site-footer"><img src="/assets/make-room-logo.svg" alt="Make Room Outside Living" width="95"/><div><strong>Come and make yourself at home.</strong><span>Halifax Show Village · Wakefield Road, Copley, HX3 0UA</span></div><a href="/privacy.html">Privacy</a><a href="tel:01422580172">01422 580172</a></footer></main>{draftNotice&&<div className="toast" role="status">A fresh start. Your room is ready to design. <button onClick={()=>{if(previousDesign)setConfig(previousDesign);setDraftNotice(false)}}>Undo</button></div>}</>}
-export default App;
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, Phone, PhoneCall, MapPin, BookOpen, Menu, X, ShieldCheck, Check } from "lucide-react";
+import { DEFAULT_CONFIG, normalizeConfig, readSharedDesign, compactCode, openingById, WALL_LABELS, wallsFor } from "./catalog.js";
+import { CONTACT, USPS, BROCHURE_URL } from "./content.js";
+import { normaliseUkPhone } from "./validation.js";
+import Viewer from "./ui/Viewer.jsx";
+import { SizeStep, ExteriorStep, OpeningsStep, InteriorStep } from "./ui/steps.jsx";
+import { PriceStep, checkLead } from "./ui/PriceStep.jsx";
+import EnquiryDrawer from "./ui/EnquiryDrawer.jsx";
+import Tour, { Welcome } from "./ui/Tour.jsx";
+
+const STEPS = [
+  { id: "size", label: "Size", title: "Start with the space you need.", intro: "Pick a garden room or a modular extension, then find your size." },
+  { id: "exterior", label: "Exterior", title: "Choose your look.", intro: "Real Make Room finishes. Watch them change on your room." },
+  { id: "openings", label: "Doors & windows", title: "Let the light in.", intro: "Add doors and windows to any wall, then slide them into place." },
+  { id: "interior", label: "Interior", title: "Make yourself at home.", intro: "Flooring and lighting, seen from inside your room." },
+  { id: "price", label: "Your price", title: "Your design. Your price.", intro: "See the price for exactly what you've designed, with a PDF pack to keep." },
+];
+const STORE = "make-room-design-v2";
+const TOUR_KEY = "make-room-tour-v2";
+const read = (k) => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+const write = (k, v) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {
+    /* private mode: designs still work for this visit */
+  }
+};
+const uuid = () =>
+  crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (+c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (+c / 4)))).toString(16));
+const track = (event, details = {}) => {
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({ event: `make_room_${event}`, ...details });
+};
+const STEP_FOCUS = [{ type: "size" }, { type: "overview" }, null, { type: "furniture" }, { type: "overview" }];
+
+function initialConfig() {
+  const shared = readSharedDesign();
+  if (shared) return shared;
+  try {
+    const saved = JSON.parse(read(STORE) || "null");
+    if (saved) return normalizeConfig(saved);
+  } catch {
+    /* ignore a damaged save */
+  }
+  return normalizeConfig(DEFAULT_CONFIG);
+}
+
+function Header({ onRequest, menuOpen, setMenuOpen }) {
+  const ctas = (
+    <>
+      <button type="button" className="hdr-cta hdr-cta--primary" onClick={() => onRequest("callback")}>
+        <PhoneCall size={16} /> Request a callback
+      </button>
+      <button type="button" className="hdr-cta" onClick={() => onRequest("visit")}>
+        <MapPin size={16} /> Visit our show village
+      </button>
+      {BROCHURE_URL ? (
+        <a className="hdr-cta" href={BROCHURE_URL} download>
+          <BookOpen size={16} /> Download brochure
+        </a>
+      ) : (
+        <button type="button" className="hdr-cta" onClick={() => onRequest("brochure")}>
+          <BookOpen size={16} /> Get a brochure
+        </button>
+      )}
+    </>
+  );
+  return (
+    <header className="hdr">
+      <a href={CONTACT.site} className="hdr-logo" aria-label="Make Room Outside Living home">
+        <img src="/assets/make-room-logo.svg" alt="Make Room Outside Living" width="94" height="65" />
+      </a>
+      <p className="hdr-title">
+        <strong>Design your room</strong>
+        <span>3D designer</span>
+      </p>
+      <nav className="hdr-ctas" aria-label="Talk to Make Room" data-tour="ctas">
+        {ctas}
+        <a className="hdr-phone" href={CONTACT.phoneHref}>
+          <Phone size={16} />
+          <span>{CONTACT.phone}</span>
+        </a>
+      </nav>
+      <div className="hdr-mobile">
+        <a className="icon-button" href={CONTACT.phoneHref} aria-label={`Call ${CONTACT.phone}`}>
+          <Phone size={19} />
+        </a>
+        <button type="button" className="icon-button" aria-expanded={menuOpen} aria-controls="hdr-menu" aria-label={menuOpen ? "Close menu" : "Talk to Make Room"} onClick={() => setMenuOpen(!menuOpen)} data-tour="ctas">
+          {menuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+      </div>
+      {menuOpen && (
+        <div className="hdr-menu" id="hdr-menu">
+          {ctas}
+          <a className="hdr-cta" href={CONTACT.phoneHref}>
+            <Phone size={16} /> Call {CONTACT.phone}
+          </a>
+        </div>
+      )}
+    </header>
+  );
+}
+
+export default function App() {
+  const [config, setConfig] = useState(initialConfig);
+  const configRef = useRef(config);
+  // Undo history lives in a ref so undo/redo read and write it synchronously;
+  // `historyTick` re-renders the buttons.
+  const undoStack = useRef({ past: [], future: [] });
+  const [, setHistoryTick] = useState(0);
+  const [step, setStep] = useState(0);
+  const [view, setView] = useState("outside");
+  const [lighting, setLighting] = useState("day");
+  const [dims, setDims] = useState(false);
+  const [focus, setFocus] = useState(null);
+  const [flash, setFlash] = useState(null);
+  const [openingWall, setOpeningWall] = useState("front");
+  const [toast, setToast] = useState(null);
+  // Links in the PDF can open a request form directly (?request=callback).
+  const [drawer, setDrawer] = useState(() => {
+    const r = new URLSearchParams(location.search).get("request");
+    return ["callback", "visit", "brochure"].includes(r) ? r : null;
+  });
+  const [tour, setTour] = useState(() => (read(TOUR_KEY) || new URLSearchParams(location.search).get("request") ? null : "welcome"));
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [lead, setLead] = useState({ firstName: "", lastName: "", email: "", phone: "", postcode: "", timeline: "", budget: "", marketing: false });
+  const [known, setKnown] = useState(null);
+  const [quote, setQuote] = useState(null);
+  const [unlocked, setUnlocked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState("");
+  const [shared, setShared] = useState(false);
+  const viewer = useRef(null);
+  const panel = useRef(null);
+  const requestId = useRef(uuid());
+  const toastTimer = useRef(null);
+  const flashTimer = useRef(null);
+
+  const say = useCallback((text, undo) => {
+    clearTimeout(toastTimer.current);
+    setToast({ text, undo });
+    toastTimer.current = setTimeout(() => setToast(null), 5200);
+  }, []);
+  const focusOn = useCallback((spec) => spec && setFocus((f) => ({ spec, n: (f?.n || 0) + 1 })), []);
+
+  // Every design change goes through here: normalise, remember for undo,
+  // turn the 3D view to the changed part and flash the chosen option.
+  const change = useCallback(
+    (mutator, spec, flashKey, opts = {}) => {
+      if (opts.silent) return focusOn(spec);
+      const prev = configRef.current;
+      const draft = mutator(structuredClone(prev)) || structuredClone(prev);
+      const next = normalizeConfig(draft);
+      if (JSON.stringify(next) === JSON.stringify(prev)) return focusOn(spec);
+      const lost = (draft.openings || []).filter((o) => !next.openings.some((n) => n.id === o.id));
+      configRef.current = next;
+      setConfig(next);
+      undoStack.current = { past: [...undoStack.current.past.slice(-59), prev], future: [] };
+      setHistoryTick((t) => t + 1);
+      focusOn(spec);
+      if (flashKey) {
+        setFlash(flashKey);
+        clearTimeout(flashTimer.current);
+        flashTimer.current = setTimeout(() => setFlash(null), 1400);
+      }
+      if (lost.length) {
+        const names = lost.map((o) => `${openingById(o.product).label} (${WALL_LABELS[o.wall]})`).join(", ");
+        const plural = lost.length > 1;
+        if (next.type === "extension" && lost.every((o) => o.wall === "back")) say(`An extension's back wall joins your house, so we took out ${names}.`, true);
+        else say(`${names} no longer ${plural ? "fit" : "fits"} at this size, so we took ${plural ? "them" : "it"} out.`, true);
+      }
+    },
+    [focusOn, say],
+  );
+  const travel = useCallback(
+    (direction) => {
+      const { past, future } = undoStack.current;
+      const current = configRef.current;
+      if (direction < 0 && past.length) {
+        configRef.current = past.at(-1);
+        undoStack.current = { past: past.slice(0, -1), future: [current, ...future] };
+      } else if (direction > 0 && future.length) {
+        configRef.current = future[0];
+        undoStack.current = { past: [...past, current], future: future.slice(1) };
+      } else return;
+      setConfig(configRef.current);
+      setHistoryTick((t) => t + 1);
+      focusOn({ type: "overview" });
+    },
+    [focusOn],
+  );
+  const undo = useCallback(() => travel(-1), [travel]);
+  const redo = useCallback(() => travel(1), [travel]);
+
+  useEffect(() => {
+    write(STORE, JSON.stringify(config));
+  }, [config]);
+  // Share, QR and PDF links are read once; drop them so a reload keeps edits.
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (["d", "design", "request"].some((k) => url.searchParams.has(k))) {
+      for (const k of ["d", "design", "request"]) url.searchParams.delete(k);
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.target.closest?.("input, textarea, select")) return;
+      if (e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        e.shiftKey ? redo() : undo();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+  // A returning visitor with a saved session sees their price straight away.
+  useEffect(() => {
+    track("started");
+    fetch("/api/quote", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config: configRef.current, requestId: uuid(), botField: "" }) })
+      .then(async (r) => {
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data.saved && data.quote) {
+          setQuote(data.quote);
+          setUnlocked(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const go = (n) => {
+    setStep(n);
+    setError("");
+    setMenuOpen(false);
+    const spec = n === 2 ? { type: "wall", wall: wallsFor(config.type).includes(openingWall) ? openingWall : "front" } : STEP_FOCUS[n];
+    if (n === 4 && view === "inside") setView("outside");
+    focusOn(spec);
+    track("step_viewed", { step: n + 1 });
+    if (matchMedia("(max-width: 1023px)").matches) requestAnimationFrame(() => panel.current?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
+  };
+
+  const quoteCurrent = !!quote && JSON.stringify(quote.config) === JSON.stringify(config);
+  const submit = async (e) => {
+    e?.preventDefault();
+    if (busy) return;
+    if (!unlocked) {
+      const errs = checkLead(lead);
+      setFieldErrors(errs);
+      if (Object.keys(errs).length) {
+        setError("Please check the highlighted details.");
+        requestAnimationFrame(() => document.getElementById(Object.keys(errs)[0])?.focus());
+        return;
+      }
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const phone = normaliseUkPhone(lead.phone);
+      const body = { config, botField: e?.target?.elements?.website?.value || "" };
+      if (!unlocked) Object.assign(body, { lead: { ...lead, phone: phone.national, notes: "" }, requestId: requestId.current });
+      const r = await fetch("/api/quote", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.saved || !data.quote) {
+        const failure = new Error(data.error || "We couldn't save your design just now. Please try again.");
+        failure.status = r.status;
+        failure.field = data.field;
+        throw failure;
+      }
+      setQuote(data.quote);
+      setUnlocked(true);
+      if (!unlocked) setKnown({ ...lead, phone: phone.national });
+      requestId.current = uuid();
+      track("quote_unlocked");
+    } catch (err) {
+      if (err.status === 401 || err.status === 409) {
+        if (err.status === 401) setUnlocked(false);
+        requestId.current = uuid();
+      }
+      if (err.field) {
+        setFieldErrors((f) => ({ ...f, [err.field]: err.message }));
+        requestAnimationFrame(() => document.getElementById(err.field)?.focus());
+      }
+      setError(err.message || `We couldn't connect. Your design is saved on this device; please try again or call ${CONTACT.phone}.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const downloadPdf = async () => {
+    if (!quoteCurrent || pdfBusy) return;
+    setPdfBusy(true);
+    setPdfError("");
+    try {
+      const [{ buildDesignPack }, pack] = await Promise.all([import("./pdf.js"), viewer.current?.capturePack({ width: 2000, height: 1250 })]);
+      const blob = await buildDesignPack({ quote, config, shots: pack?.shots || {}, meta: pack?.meta || {}, firstName: known?.firstName || lead.firstName });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Make-Room-${quote.reference}-design-pack.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+      track("pdf_download");
+      // Keep a copy with the saved enquiry for the sales team (best effort).
+      if (blob.size < 4 * 1024 * 1024)
+        fetch("/api/design-pack", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/pdf", "X-Design-Reference": quote.designReference }, body: blob }).catch(() => {});
+    } catch (err) {
+      console.warn("Design pack failed", err?.name, err?.message);
+      setPdfError("We couldn't build your PDF just now. Please try again.");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+  const share = async () => {
+    const url = `${location.origin}/configurator/?d=${compactCode(config)}`;
+    try {
+      if (navigator.share && matchMedia("(pointer: coarse)").matches) await navigator.share({ title: "My Make Room design", url });
+      else await navigator.clipboard.writeText(url);
+      setShared(true);
+      setTimeout(() => setShared(false), 2500);
+      track("design_shared");
+    } catch {
+      say("Sharing isn't available here. Your design is saved on this device.");
+    }
+  };
+  const request = (topic) => {
+    setMenuOpen(false);
+    setDrawer(topic);
+    track("request_open", { topic });
+  };
+  const closeDrawer = useCallback(() => setDrawer(null), []);
+  const onRequestSent = useCallback((t, who) => setKnown((k) => ({ ...(k || {}), ...who })), []);
+  const endTour = () => {
+    setTour(null);
+    write(TOUR_KEY, "1");
+  };
+
+  const stepProps = { config, change, flash };
+  const s = STEPS[step];
+  return (
+    <div className="app">
+      <a className="skip" href="#panel">
+        Skip to the design steps
+      </a>
+      <Header onRequest={request} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+      <ul className="usp-bar" aria-label="Why Make Room">
+        {USPS.filter((u) => u.id !== "insulated").map((u) => (
+          <li key={u.id} title={u.detail}>
+            <Check size={14} strokeWidth={2.5} />
+            {u.title}
+          </li>
+        ))}
+      </ul>
+      <main className="layout">
+        <div className="stage">
+          <Viewer
+            ref={viewer}
+            config={config}
+            view={view}
+            onView={(v) => setView(v)}
+            lighting={lighting}
+            onLighting={setLighting}
+            dims={dims}
+            onDims={setDims}
+            focus={focus}
+            onHelp={() => setTour("tour")}
+            canUndo={undoStack.current.past.length > 0}
+            canRedo={undoStack.current.future.length > 0}
+            onUndo={undo}
+            onRedo={redo}
+          />
+        </div>
+        <section className="panel" id="panel" ref={panel} tabIndex={-1} aria-labelledby="step-title">
+          <nav className="steps" aria-label="Design steps" data-tour="steps">
+            {STEPS.map((x, i) => (
+              <button key={x.id} type="button" className={`step-tab ${i === step ? "is-on" : ""} ${i < step ? "is-done" : ""}`} aria-current={i === step ? "step" : undefined} onClick={() => go(i)}>
+                <span className="step-num">{i < step ? <Check size={12} strokeWidth={3} /> : i + 1}</span>
+                <span className="step-label">{x.label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="panel-body" data-tour="panel">
+            <header className="panel-head">
+              <h2 id="step-title">{s.title}</h2>
+              <p>{s.intro}</p>
+            </header>
+            {step === 0 && <SizeStep {...stepProps} onCustom={() => request("custom")} />}
+            {step === 1 && <ExteriorStep {...stepProps} />}
+            {step === 2 && <OpeningsStep {...stepProps} wall={openingWall} setWall={setOpeningWall} />}
+            {step === 3 && <InteriorStep {...stepProps} lighting={lighting} setLighting={setLighting} />}
+            {step === 4 && (
+              <PriceStep
+                config={config}
+                quote={quote}
+                quoteCurrent={quoteCurrent}
+                unlocked={unlocked}
+                lead={lead}
+                setLead={setLead}
+                busy={busy}
+                error={error}
+                fieldErrors={fieldErrors}
+                setFieldErrors={setFieldErrors}
+                onSubmit={submit}
+                onUpdate={() => submit()}
+                onPdf={downloadPdf}
+                pdfBusy={pdfBusy}
+                pdfError={pdfError}
+                onRequest={request}
+                onShare={share}
+                shared={shared}
+                onEdit={() => go(0)}
+              />
+            )}
+          </div>
+          <footer className="panel-foot">
+            {step > 0 ? (
+              <button type="button" className="button button--ghost" onClick={() => go(step - 1)}>
+                <ArrowLeft size={17} /> <span className="hide-xs">Back</span>
+              </button>
+            ) : (
+              <span className="autosave">
+                <ShieldCheck size={15} /> Saved as you go
+              </span>
+            )}
+            {step < 4 ? (
+              <button type="button" className="button button--primary" onClick={() => go(step + 1)}>
+                {step === 3 ? "See my price" : `Next: ${STEPS[step + 1].label}`} <ArrowRight size={17} />
+              </button>
+            ) : (
+              <button type="button" className="button button--ghost" onClick={() => request("callback")}>
+                <PhoneCall size={16} /> Request a callback
+              </button>
+            )}
+          </footer>
+        </section>
+      </main>
+      {toast && (
+        <div className="toast" role="status">
+          <span>{toast.text}</span>
+          {toast.undo && (
+            <button type="button" onClick={() => (undo(), setToast(null))}>
+              Undo
+            </button>
+          )}
+        </div>
+      )}
+      {drawer && (
+        <EnquiryDrawer
+          topic={drawer}
+          onTopic={setDrawer}
+          onClose={closeDrawer}
+          config={config}
+          known={known || (lead.firstName ? lead : null)}
+          onSent={onRequestSent}
+        />
+      )}
+      {tour === "welcome" && <Welcome onStart={() => setTour("tour")} onSkip={endTour} />}
+      {tour === "tour" && <Tour onClose={endTour} />}
+    </div>
+  );
+}
