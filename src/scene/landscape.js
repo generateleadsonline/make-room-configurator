@@ -21,6 +21,12 @@ function box(g, w, h, d, x, y, z, m, cast = true) {
   g.add(mesh);
   return mesh;
 }
+// Safe mode draws planting as simple solid shapes instead of thousands of
+// instanced leaves (instancing and alpha-tested leaves trip some mobile GPUs).
+let foliage = true;
+export function setFoliage(on) {
+  foliage = on;
+}
 let leafMap;
 function leafTexture() {
   if (leafMap) return leafMap;
@@ -47,6 +53,18 @@ function leafTexture() {
   return leafMap;
 }
 function leafCloud(parent, count, at, rnd, palette = ["#a9b993", "#8aa476", "#6e8b5e", "#5a744b"], size = 1) {
+  if (!foliage) {
+    // Bounds of the cloud, filled with one soft ellipsoid.
+    const box = new THREE.Box3();
+    for (let i = 0; i < Math.min(count, 200); i++) box.expandByPoint(new THREE.Vector3(...at(i)));
+    const c = box.getCenter(new THREE.Vector3()),
+      sz = box.getSize(new THREE.Vector3());
+    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 2), mat(`blob${palette[2]}`, { color: palette[2], roughness: 1, flatShading: true }));
+    blob.position.copy(c);
+    blob.scale.set(Math.max(sz.x, 0.2), Math.max(sz.y, 0.2), Math.max(sz.z, 0.2));
+    parent.add(blob);
+    return blob;
+  }
   const mesh = new THREE.InstancedMesh(
     new THREE.PlaneGeometry(0.16 * size, 0.22 * size),
     mat(`leaf${size}`, { color: "#ffffff", map: leafTexture(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.95 }),

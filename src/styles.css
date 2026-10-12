@@ -102,6 +102,11 @@ input, textarea { caret-color: var(--green); }
 .viewer-fallback-card { position: absolute; left: 12px; right: 12px; bottom: 12px; display: grid; gap: 6px; justify-items: start; padding: 14px 16px; background: rgba(255, 255, 255, 0.96); border-radius: var(--radius); box-shadow: var(--shadow); text-align: left; font-size: 14px; color: var(--body); }
 .viewer-fallback-card strong { color: var(--green-ink); font-weight: 700; font-size: 15px; }
 .viewer-fallback-card .button { margin-top: 4px; }
+.viewer-fallback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+.viewer-fallback-actions .link-button { margin: 4px 0 0; }
+.viewer-safe { position: absolute; left: 50%; top: 64px; z-index: 2; transform: translateX(-50%); margin: 0; padding: 5px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.92); box-shadow: var(--shadow); font-size: 12.5px; color: var(--body); white-space: nowrap; }
+.viewer-safe button { color: var(--green); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.viewer-debug { position: absolute; left: 8px; top: 64px; z-index: 4; max-width: min(360px, 90%); max-height: 60%; overflow: auto; margin: 0; padding: 8px 10px; border-radius: 6px; background: rgba(20, 26, 20, 0.86); color: #d8f0c0; font: 11px/1.35 ui-monospace, Menlo, monospace; pointer-events: none; }
 .viewer-fallback-card small { color: var(--muted); font-size: 11.5px; }
 .viewer-loading--soft { z-index: 2; background: rgba(243, 242, 238, 0.72); }
 .viewer-top, .viewer-bottom { position: absolute; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; pointer-events: none; }
