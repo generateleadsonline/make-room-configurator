@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildBuilding, focusTarget, wallPoint, wallFrame, openingRect, FLOOR_Y, FASCIA_BOTTOM, CEILING_Y, WALL_T, setGlassQuality } from "./building.js";
-import { buildLandscape, contactShadow } from "./landscape.js";
+import { buildLandscape, contactShadow, setFoliage } from "./landscape.js";
 import { setAnisotropy, setTextureScale, texturesReady } from "./textures.js";
 import { HEIGHT, wallLength, WALLS } from "../catalog.js";
+import { log, errorDetail } from "./diagnostics.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -18,26 +19,60 @@ const SKIES = {
 // browser does not reclaim the GPU context under memory pressure; WebGL 1
 // devices get the lightest settings.
 export const TIERS = {
-  high: { dpr: 2, shadow: 2048, aniso: 8, texScale: 1, glass: "high", spots: 99, captureShadow: 4096, capture: [2000, 1250], cover: [2400, 1148], elev: 1800 },
-  medium: { dpr: 1.5, shadow: 1024, aniso: 4, texScale: 0.5, glass: "medium", spots: 4, captureShadow: 2048, capture: [1600, 1000], cover: [1920, 918], elev: 1400 },
-  low: { dpr: 1, shadow: 1024, aniso: 2, texScale: 0.5, glass: "medium", spots: 2, captureShadow: 1024, capture: [1280, 800], cover: [1600, 765], elev: 1100 },
+  high: { dpr: 2, shadow: 2048, aniso: 8, texScale: 1, glass: "high", spots: 99, captureShadow: 4096, capture: [2000, 1250], cover: [2400, 1148], elev: 1800, aa: true, env: true, sky: true, foliage: true },
+  medium: { dpr: 1.5, shadow: 1024, aniso: 4, texScale: 0.5, glass: "medium", spots: 4, captureShadow: 2048, capture: [1600, 1000], cover: [1920, 918], elev: 1400, aa: true, env: true, sky: true, foliage: true },
+  low: { dpr: 1, shadow: 1024, aniso: 2, texScale: 0.5, glass: "medium", spots: 2, captureShadow: 1024, capture: [1280, 800], cover: [1600, 765], elev: 1100, aa: false, env: true, sky: true, foliage: true },
+  // Safe mode, for GPUs that crashed or failed with the full renderer: no
+  // shadow maps, no environment render targets, no custom sky shader, no
+  // instanced foliage, no multisampling. Still the same textured 3D room.
+  safe: { dpr: 1, shadow: 0, aniso: 1, texScale: 0.5, glass: "medium", spots: 0, captureShadow: 0, capture: [1280, 800], cover: [1600, 765], elev: 1100, aa: false, env: false, sky: false, foliage: false },
 };
 
+// QA only: ?mr3dfault=init|render|shader injects a failure to test the
+// guards; add "-normal" (e.g. render-normal) to fail only the full renderer.
+const FAULT_PARAM = (() => {
+  try {
+    return new URLSearchParams(location.search).get("mr3dfault") || "";
+  } catch {
+    return "";
+  }
+})();
+const faultFor = (quality) => (FAULT_PARAM.endsWith("-normal") && quality === "safe" ? "" : FAULT_PARAM.replace(/-normal$/, ""));
+
+function releaseCanvas(canvas) {
+  for (const type of ["webgl2", "webgl"]) {
+    try {
+      // Returns the context already on this canvas, if one was made.
+      const gl = canvas.getContext(type);
+      gl?.getExtension("WEBGL_lose_context")?.loseContext();
+      if (gl) break;
+    } catch {
+      /* nothing to release */
+    }
+  }
+}
+
 // WebGL 2 where available, otherwise WebGL 1 (three r162 supports both).
+// Each attempt gets its own canvas, and a failed attempt releases whatever
+// context it managed to create, so failures never leave GPU contexts behind.
 function createRenderer(tier) {
   const attempts = [
-    { antialias: tier !== "low", powerPreference: "high-performance" },
+    { antialias: tier.aa, powerPreference: tier === TIERS.safe ? "default" : "high-performance" },
     { antialias: false, powerPreference: "default" },
   ];
   let lastError;
   for (const opts of attempts) {
+    const canvas = document.createElement("canvas");
     try {
-      return new THREE.WebGLRenderer({ ...opts, alpha: false, preserveDrawingBuffer: false, failIfMajorPerformanceCaveat: false });
+      return new THREE.WebGLRenderer({ ...opts, canvas, alpha: false, preserveDrawingBuffer: false, failIfMajorPerformanceCaveat: false });
     } catch (err) {
       lastError = err;
+      releaseCanvas(canvas);
     }
   }
-  throw lastError || new Error("WebGL unavailable");
+  const err = lastError || new Error("WebGL unavailable");
+  err.stage = "context";
+  throw err;
 }
 
 // `scale` stands in for Scene.environmentIntensity, which r162 lacks: the
@@ -67,23 +102,72 @@ function skyDome(sky, scale = 1) {
 }
 
 export class Engine {
-  constructor(host, overlay, { quality = "high", onReady, onLost, onRestored } = {}) {
+  // Phase one creates the GPU context; its failure means no usable WebGL
+  // ("context"). Phase two builds everything else; if that fails the context
+  // is released before the error leaves, tagged "init", so callers can tell
+  // a working GPU from a missing one and nothing is leaked.
+  constructor(host, overlay, { quality = "high", onReady, onLost, onRestored, onCrash } = {}) {
     this.host = host;
     this.overlay = overlay;
-    const renderer = createRenderer(quality);
+    log("renderer:create", quality);
+    const renderer = createRenderer(TIERS[quality]);
+    log("renderer:ok", renderer.capabilities.isWebGL2 ? "webgl2" : "webgl1");
+    try {
+      this.init(renderer, quality, { onReady, onLost, onRestored, onCrash });
+    } catch (err) {
+      this.destroyRenderer(renderer);
+      err.stage ||= "init";
+      err.contextCreated = true;
+      throw err;
+    }
+  }
+  destroyRenderer(renderer) {
+    cancelAnimationFrame(this.frame);
+    this.resizeObserver?.disconnect();
+    if (this.handleLost) renderer.domElement.removeEventListener("webglcontextlost", this.handleLost, false);
+    if (this.handleRestored) renderer.domElement.removeEventListener("webglcontextrestored", this.handleRestored, false);
+    try {
+      this.controls?.dispose();
+      this.planControls?.dispose();
+      this.pmrem?.dispose();
+      renderer.dispose();
+      renderer.forceContextLoss();
+    } catch {
+      /* best effort */
+    }
+    renderer.domElement.remove();
+  }
+  init(renderer, quality, { onReady, onLost, onRestored, onCrash }) {
+    const host = this.host;
     const gl = renderer.getContext();
     // Older phones and browsers: WebGL 1, or small texture limits.
-    if (!renderer.capabilities.isWebGL2 || renderer.capabilities.maxTextureSize < 4096) quality = "low";
+    if (quality !== "safe" && (!renderer.capabilities.isWebGL2 || renderer.capabilities.maxTextureSize < 4096)) quality = "low";
     this.quality = quality;
+    this.safe = quality === "safe";
+    this.onCrash = onCrash;
+    this.renderErrors = 0;
+    this.shaderErrors = [];
+    this.fault = faultFor(quality);
     this.tier = TIERS[quality];
     this.webgl = renderer.capabilities.isWebGL2 ? 2 : 1;
     setGlassQuality(this.tier.glass);
     setTextureScale(this.tier.texScale);
+    setFoliage(this.tier.foliage);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.tier.dpr));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NeutralToneMapping;
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = this.tier.shadow > 0;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Shader compile or link failures do not throw; route them to the crash
+    // guard so the view can fall back to safe mode instead of rendering blank.
+    renderer.debug.onShaderError = (glc, program, vs, fs) => {
+      const logOf = (sh) => (sh && glc.getShaderInfoLog(sh)) || "";
+      const detail = ((program && glc.getProgramInfoLog(program)) || logOf(fs) || logOf(vs) || "shader error").trim().slice(0, 300);
+      this.shaderErrors.push(detail);
+      log("shader:error", detail);
+      console.warn("Make Room 3D: shader error", detail);
+      this.crash("shader", new Error(detail));
+    };
     renderer.domElement.className = "mr-canvas";
     renderer.domElement.setAttribute("aria-hidden", "true");
     host.appendChild(renderer.domElement);
@@ -96,14 +180,17 @@ export class Engine {
     this.onRestored = onRestored;
     this.handleLost = (event) => {
       event.preventDefault();
+      log("context:lost");
       this.lost = true;
       this.onLost?.();
     };
     this.handleRestored = () => {
+      if (this.disposed) return;
       this.lost = false;
       // Objects from the old context are simply dropped; disposing them would
       // address GL handles that no longer exist.
-      this.pmrem = new THREE.PMREMGenerator(this.renderer);
+      log("context:restored");
+      this.pmrem = this.tier.env ? new THREE.PMREMGenerator(this.renderer) : null;
       this.envRT = null;
       this.sky = null;
       this.scene.children.filter((o) => o.name === "sky").forEach((o) => this.scene.remove(o));
@@ -140,14 +227,14 @@ export class Engine {
     });
     this.hemi = new THREE.HemisphereLight("#fff", "#888", 1);
     this.sun = new THREE.DirectionalLight("#fff", 2.5);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(this.tier.shadow, this.tier.shadow);
+    this.sun.castShadow = this.tier.shadow > 0;
+    this.sun.shadow.mapSize.set(this.tier.shadow || 512, this.tier.shadow || 512);
     this.sun.shadow.normalBias = 0.025;
     this.sun.shadow.bias = -0.0002;
     this.sun.shadow.radius = 3;
     this.interiorFill = new THREE.PointLight("#fff4e6", 0, 8, 1.4);
     scene.add(this.hemi, this.sun, this.sun.target, this.interiorFill);
-    this.pmrem = new THREE.PMREMGenerator(renderer);
+    this.pmrem = this.tier.env ? new THREE.PMREMGenerator(renderer) : null;
     this.view = "outside";
     this.lighting = "day";
     this.showDims = false;
@@ -163,17 +250,55 @@ export class Engine {
     this.loop = this.loop.bind(this);
     this.frame = requestAnimationFrame(this.loop);
     this.onReady = onReady;
+    if (this.fault === "init") throw new Error("Injected init fault (QA)");
+    log("engine:ready", { quality, webgl: this.webgl });
+  }
+  // One place every failure goes: stop drawing and tell the viewer once.
+  crash(kind, err) {
+    if (this.crashed) return;
+    this.crashed = true;
+    cancelAnimationFrame(this.frame);
+    log(`crash:${kind}`, errorDetail(err));
+    const tell = this.onCrash;
+    // Outside the render call stack, so three is not mid-frame.
+    setTimeout(() => tell?.(kind, err), 0);
   }
 
   applySky() {
     const sky = SKIES[this.lighting];
     if (this.sky) {
       this.scene.remove(this.sky);
-      this.sky.geometry.dispose();
-      this.sky.material.dispose();
+      this.sky.geometry?.dispose();
+      this.sky.material?.dispose();
     }
-    this.sky = skyDome(sky);
-    this.scene.add(this.sky);
+    if (this.tier.sky) {
+      this.sky = skyDome(sky);
+      this.scene.add(this.sky);
+    } else {
+      // Safe mode: a plain sky colour instead of the custom sky shader.
+      this.sky = new THREE.Group();
+      this.sky.name = "sky";
+      this.skyColour = new THREE.Color(sky.horizon).lerp(new THREE.Color(sky.top), 0.35);
+    }
+    this.applyEnvironment(sky);
+    this.scene.fog = new THREE.Fog(sky.fog, 22, 70);
+    this.hemi.color.set(sky.hemiSky);
+    this.hemi.groundColor.set(sky.hemiGround);
+    // Without environment lighting the hemisphere light carries the fill.
+    this.hemi.intensity = this.tier.env ? sky.hemiI : sky.hemiI * 1.9;
+    this.sun.color.set(sky.sun);
+    this.sun.intensity = sky.sunI;
+    this.sunDir = new THREE.Vector3(...sky.sunDir).normalize();
+    this.renderer.toneMappingExposure = sky.exposure;
+    this.applyLamps();
+    this.placeSun();
+    this.dirty = true;
+  }
+  applyEnvironment(sky) {
+    if (!this.tier.env) {
+      this.scene.environment = null;
+      return;
+    }
     // Environment for reflections: the same sky plus a soft ground, at the
     // sky's environment strength.
     const envScene = new THREE.Scene();
@@ -190,17 +315,6 @@ export class Engine {
     this.envRT?.dispose();
     this.envRT = env;
     this.scene.environment = env.texture;
-    this.scene.fog = new THREE.Fog(sky.fog, 22, 70);
-    this.hemi.color.set(sky.hemiSky);
-    this.hemi.groundColor.set(sky.hemiGround);
-    this.hemi.intensity = sky.hemiI;
-    this.sun.color.set(sky.sun);
-    this.sun.intensity = sky.sunI;
-    this.sunDir = new THREE.Vector3(...sky.sunDir).normalize();
-    this.renderer.toneMappingExposure = sky.exposure;
-    this.applyLamps();
-    this.placeSun();
-    this.dirty = true;
   }
   placeSun() {
     const c = this.config;
@@ -277,9 +391,9 @@ export class Engine {
     this.landscape.traverse((o) => {
       if (o.userData.tall) o.visible = !plan;
     });
-    this.sky.visible = !plan;
+    if (this.sky) this.sky.visible = !plan;
     this.placeSun();
-    this.scene.background = plan ? new THREE.Color("#f3f2ee") : null;
+    this.scene.background = plan ? new THREE.Color("#f3f2ee") : this.tier.sky ? null : this.skyColour;
     this.scene.fog = plan ? null : new THREE.Fog(SKIES[this.lighting].fog, 22, 70);
     this.interiorFill.intensity = inside && this.lighting === "day" ? 1.1 : 0;
     this.interiorFill.position.set(0, CEILING_Y - 0.3, 0);
@@ -701,7 +815,22 @@ export class Engine {
     else if (!this.anim) changed = this.controls.update();
     if (this.highlights.length || this.lampFlash) this.tickHighlights(now);
     if (changed || this.dirty) {
-      this.renderer.render(this.scene, this.active);
+      // Crash guard: a frame that throws is counted; three in a row stop the
+      // view and hand over to the viewer's fallback chain.
+      try {
+        if (this.fault === "render") throw new Error("Injected render fault (QA)");
+        this.renderer.render(this.scene, this.active);
+        this.renderErrors = 0;
+      } catch (err) {
+        this.renderErrors++;
+        log("render:error", errorDetail(err));
+        if (this.renderErrors >= 3) this.crash("render", err);
+        return;
+      }
+      if (this.fault === "shader" && !this.faulted) {
+        this.faulted = true;
+        this.renderer.debug.onShaderError(this.renderer.getContext(), null, null, null);
+      }
       this.updateLabels();
       this.dirty = false;
       if (this.onReady) {
@@ -735,9 +864,11 @@ export class Engine {
     this.overlay.hidden = true;
     if (this.dimLines) this.dimLines.visible = false;
     r.setPixelRatio(1);
-    this.sun.shadow.mapSize.set(this.tier.captureShadow, this.tier.captureShadow);
-    this.sun.shadow.map?.dispose();
-    this.sun.shadow.map = null;
+    if (this.tier.captureShadow) {
+      this.sun.shadow.mapSize.set(this.tier.captureShadow, this.tier.captureShadow);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
     const shots = {},
       meta = {};
     let ground = null;
@@ -837,7 +968,7 @@ export class Engine {
       u.roof.visible = true;
       u.plan.visible = false;
       this.scene.fog = null;
-      this.sky.visible = false;
+      if (this.sky) this.sky.visible = false;
       meta.elevations = {};
       for (const wall of WALLS) {
         if (c.type === "extension" && wall === "back") continue;
@@ -874,9 +1005,11 @@ export class Engine {
       this.landscape.traverse((o) => o.userData.tall && (o.visible = true));
       if (this.dimLines) this.dimLines.visible = true;
       this.camera.near = 0.05;
-      this.sun.shadow.mapSize.set(saved.shadow, saved.shadow);
-      this.sun.shadow.map?.dispose();
-      this.sun.shadow.map = null;
+      if (this.tier.captureShadow) {
+        this.sun.shadow.mapSize.set(saved.shadow, saved.shadow);
+        this.sun.shadow.map?.dispose();
+        this.sun.shadow.map = null;
+      }
       r.setPixelRatio(saved.ratio);
       r.setSize(saved.size.x, saved.size.y, false);
       this.camera.aspect = saved.aspect;
@@ -906,23 +1039,21 @@ export class Engine {
   }
 
   dispose() {
-    cancelAnimationFrame(this.frame);
-    this.resizeObserver.disconnect();
-    this.renderer.domElement.removeEventListener("webglcontextlost", this.handleLost, false);
-    this.renderer.domElement.removeEventListener("webglcontextrestored", this.handleRestored, false);
-    this.controls.dispose();
-    this.planControls.dispose();
     if (this.building) this.disposeGroup(this.building, true);
     if (this.landscape) this.disposeGroup(this.landscape, true);
     this.envRT?.dispose();
-    this.pmrem.dispose();
-    this.renderer.dispose();
     // Hand the GPU context back at once: phones cap how many a page may hold.
-    try {
-      if (!this.lost) this.renderer.forceContextLoss();
-    } catch {
-      /* already gone */
-    }
-    this.renderer.domElement.remove();
+    if (this.lost) {
+      // Already lost: just stop listening, so a late restore of this old
+      // context can never wake a disposed engine.
+      cancelAnimationFrame(this.frame);
+      this.resizeObserver?.disconnect();
+      this.renderer.domElement.removeEventListener("webglcontextlost", this.handleLost, false);
+      this.renderer.domElement.removeEventListener("webglcontextrestored", this.handleRestored, false);
+      this.controls?.dispose();
+      this.planControls?.dispose();
+      this.renderer.domElement.remove();
+    } else this.destroyRenderer(this.renderer);
+    this.disposed = true;
   }
 }
