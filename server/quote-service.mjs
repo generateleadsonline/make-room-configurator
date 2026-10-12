@@ -1,59 +1,115 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { DEFAULT_CONFIG, WIDTHS, allowedDepths, allowedDoors, claddingFinishes, USES, CLADDINGS, FLOORS, ELECTRICAL, SIDES, normalizeConfig } from '../src/catalog.js';
+import { DEFAULT_CONFIG, normalizeConfig } from '../src/catalog.js';
+import { BUDGETS, INSTALL_TIMES, normaliseUkPhone, validateEmail, validateName, validatePostcode } from '../src/validation.js';
 import { calculateQuote } from './pricing.mjs';
 
 const MAX_BODY_BYTES = 16384;
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const COOKIE_NAME = 'make_room_quote_session';
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SESSION_TOKEN = /^[a-f0-9]{64}$/;
-const POSTCODE = /^(?:GIR\s?0AA|(?:[A-PR-UWYZ]\d(?:\d|[A-HJKPSTUW])?|[A-PR-UWYZ][A-HK-Y]\d(?:\d|[ABEHMNPRVWXY])?)\s?\d[ABD-HJLNP-UW-Z]{2})$/i;
-
+const MAX_OPENINGS = 24;
+export const LEAD_SOURCE = 'Make Room Outside Living configurator';
 
 export class QuoteInputError extends Error {
   constructor(message, status = 400, field) { super(message); this.status = status; this.field = field; }
 }
 
-function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
-function knownKeys(value, keys) { for (const key of Object.keys(value)) if (!keys.includes(key)) throw new QuoteInputError('Please check the information sent.'); }
-function text(value, field, { required = false, max = 200, multiline = false } = {}) {
+export function isPlainObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+export function assertKnownKeys(value, keys) { for (const key of Object.keys(value)) if (!keys.includes(key)) throw new QuoteInputError('Please check the information sent.'); }
+// Free text: no control characters (tab/newline allowed when multiline) and no angle brackets.
+export function cleanText(value, field, { required = false, max = 200, multiline = false, label = field } = {}) {
   if (value === undefined || value === null) value = '';
-  const disallowed = multiline ? /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f<>]/u : /[\u0000-\u001f\u007f<>]/u;
-  if (typeof value !== 'string' || value.length > max || disallowed.test(value)) throw new QuoteInputError(`Please check your ${field}.`, 400, field);
+  const scanned = typeof value === 'string' && multiline ? value.replace(/[\t\n\r]/g, ' ') : value;
+  if (typeof value !== 'string' || value.length > max || /[\p{Cc}<>]/u.test(scanned)) throw new QuoteInputError(`Please check your ${label}.`, 400, field);
   const result = value.trim();
-  if (required && !result) throw new QuoteInputError(`Please enter your ${field}.`, 400, field);
+  if (required && !result) throw new QuoteInputError(`Please enter your ${label}.`, 400, field);
   return result;
 }
+// Applies a src/validation.js result, or throws with the input's own name as the field.
+export function checked(result, field) {
+  if (!result.ok) throw new QuoteInputError(result.error, 400, field);
+  return result;
+}
+export function optionOf(value, options, field, label) {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value !== 'string' || !options.includes(value)) throw new QuoteInputError(`Please choose your ${label} from the list.`, 400, field);
+  return value;
+}
+export function optionalBoolean(value, field) {
+  if (value !== undefined && typeof value !== 'boolean') throw new QuoteInputError('Please check your contact preferences.', 400, field);
+  return value === true;
+}
+
+export const LEAD_FIELDS = ['firstName', 'lastName', 'email', 'phone', 'postcode', 'timeline', 'budget', 'notes', 'marketing'];
 export function validateLead(input) {
-  if (!object(input)) throw new QuoteInputError('Please enter your contact details.');
-  knownKeys(input, ['name', 'email', 'postcode', 'phone', 'timeline', 'notes', 'marketing']);
-  const name = text(input.name, 'name', { required: true, max: 100 });
-  if (name.length < 2) throw new QuoteInputError('Please enter your name.', 400, 'name');
-  const email = text(input.email, 'email', { required: true, max: 254 }).toLowerCase();
-  if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) throw new QuoteInputError('Please enter a valid email address.', 400, 'email');
-  const postcodeInput = text(input.postcode, 'postcode', { required: true, max: 12 }).toUpperCase().replace(/\s+/g, '');
-  if (!POSTCODE.test(postcodeInput)) throw new QuoteInputError('Please enter a valid UK postcode.', 400, 'postcode');
-  const postcode = `${postcodeInput.slice(0, -3)} ${postcodeInput.slice(-3)}`;
-  const phone = text(input.phone, 'phone', { max: 30 });
-  if (phone && (!/^[+()\d\s.-]+$/.test(phone) || phone.replace(/\D/g, '').length < 7 || phone.replace(/\D/g, '').length > 15)) throw new QuoteInputError('Please check your phone number.', 400, 'phone');
-  if (input.marketing !== undefined && typeof input.marketing !== 'boolean') throw new QuoteInputError('Please check your contact preferences.');
-  return { name, email, postcode, phone, timeline: text(input.timeline, 'timeline', { max: 80 }), notes: text(input.notes, 'notes', { max: 1200, multiline: true }), marketing: input.marketing === true };
+  if (!isPlainObject(input)) throw new QuoteInputError('Please enter your contact details.');
+  assertKnownKeys(input, LEAD_FIELDS);
+  const firstName = checked(validateName(input.firstName, 'first name'), 'firstName').value;
+  const lastName = checked(validateName(input.lastName, 'last name'), 'lastName').value;
+  const email = checked(validateEmail(input.email), 'email').value;
+  const phone = checked(normaliseUkPhone(input.phone), 'phone');
+  const postcode = checked(validatePostcode(input.postcode), 'postcode').value;
+  return {
+    firstName,
+    lastName,
+    email,
+    phone: phone.national,
+    phoneE164: phone.e164,
+    postcode,
+    timeline: optionOf(input.timeline, INSTALL_TIMES, 'timeline', 'installation timescale'),
+    budget: optionOf(input.budget, BUDGETS, 'budget', 'budget'),
+    notes: cleanText(input.notes, 'notes', { max: 1200, multiline: true, label: 'notes' }),
+    marketing: optionalBoolean(input.marketing, 'marketing'),
+  };
 }
 
+// Deep equality where object key order does not matter but array order does.
+function sameValue(a, b) {
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => sameValue(x, b[i]));
+  if (isPlainObject(a) || isPlainObject(b)) {
+    if (!isPlainObject(a) || !isPlainObject(b)) return false;
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((k) => Object.hasOwn(b, k) && sameValue(a[k], b[k]));
+  }
+  return Object.is(a, b);
+}
+const CONFIG_MESSAGES = {
+  type: 'Please choose a garden room or a modular extension.',
+  use: 'Please check how you will use your room.',
+  width: 'Please choose a Make Room modular width.',
+  depth: 'Please choose a length available for this width.',
+  cladding: 'Please choose an available cladding finish for each wall.',
+  openings: 'Please check your doors and windows: one no longer fits where it was placed.',
+  overhang: 'Please check your roof overhang sizes.',
+  decking: 'Please check your decking sizes.',
+  deckingColour: 'Please choose an available decking colour.',
+  floor: 'Please choose an available flooring colour.',
+  electrical: 'Please choose an electrical package.',
+};
+const configError = (field) => new QuoteInputError(CONFIG_MESSAGES[field] || 'Please check your garden room design.', 400, field);
+const finite = (n) => typeof n === 'number' && Number.isFinite(n);
+
+// Strict v2 check. The browser always sends designs that have been through
+// normalizeConfig, so anything normalizeConfig would change is refused.
 export function validateConfig(input) {
-  if (!object(input)) throw new QuoteInputError('Please check your garden room design.');
-  knownKeys(input, Object.keys(DEFAULT_CONFIG));
-  if (!WIDTHS.includes(input.width)) throw new QuoteInputError('Please choose a Make Room modular width.', 400, 'width');
-  if (!allowedDepths(input.width).includes(input.depth)) throw new QuoteInputError('Please choose a depth available for this width.', 400, 'depth');
-  const enums={use:USES.map(x=>x.id),type:['garden','extension'],cladding:CLADDINGS.map(x=>x.id),floor:FLOORS.map(x=>x.id),doors:allowedDoors(input.width).map(x=>x.id),windows:['none','left','right','both'],electrical:ELECTRICAL.map(x=>x.id)};
-  for(const [key,values]of Object.entries(enums))if(!values.includes(input[key]))throw new QuoteInputError(`Please check your ${key} selection.`,400,key);
-  if(input.type==='extension'&&input.cladding==='steel')throw new QuoteInputError('Steel cladding is available for garden rooms. Please choose an extension cladding.',400,'cladding');
-  if(!claddingFinishes(input).some(f=>f.id===input.claddingColor))throw new QuoteInputError('Please choose an available cladding colour.',400,'claddingColor');
-  for(const key of ['overhang','decking'])if(!Array.isArray(input[key])||input[key].length>4||new Set(input[key]).size!==input[key].length||input[key].some(x=>!SIDES.includes(x)))throw new QuoteInputError(`Please check your ${key} selection.`,400,key);
-  return normalizeConfig(input);
+  if (!isPlainObject(input)) throw new QuoteInputError('Please check your garden room design.', 400, 'config');
+  for (const key of Object.keys(input)) if (!Object.hasOwn(DEFAULT_CONFIG, key)) throw new QuoteInputError('Please check your garden room design.', 400, 'config');
+  if (input.v !== 2) throw new QuoteInputError('Please refresh the configurator and try again.', 400, 'config');
+  if (!finite(input.width)) throw configError('width');
+  if (!finite(input.depth)) throw configError('depth');
+  for (const key of ['cladding', 'overhang', 'decking']) {
+    if (!isPlainObject(input[key])) throw configError(key);
+    if (key !== 'cladding' && Object.values(input[key]).some((n) => !finite(n))) throw configError(key);
+  }
+  if (!Array.isArray(input.openings) || input.openings.length > MAX_OPENINGS) throw configError('openings');
+  if (input.openings.some((o) => !isPlainObject(o) || !finite(o.offset))) throw configError('openings');
+  const normal = normalizeConfig(input);
+  for (const key of Object.keys(normal)) if (!sameValue(normal[key], input[key])) throw configError(key);
+  return normal;
 }
 
-function digest(value) { return createHash('sha256').update(value).digest('hex'); }
+export function digest(value) { return createHash('sha256').update(value).digest('hex'); }
 function response(data, status = 200, extraHeaders = {}) {
   const headers = new Headers({ 'Cache-Control': 'private, no-store, max-age=0', 'X-Content-Type-Options': 'nosniff', ...extraHeaders });
   if (headers.has('Set-Cookie')) {
@@ -91,11 +147,11 @@ export async function acceptedSession(request, store, now = Date.now) {
   if (!leadReceipt?.lead || !leadReceipt?.quote) throw new QuoteInputError('Please submit your details to unlock your estimate.', 401);
   return { token, session, leadReceipt };
 }
-async function body(request) {
-  if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new QuoteInputError('Please send a valid quote request.', 415);
+export async function readJsonBody(request) {
+  if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new QuoteInputError('Please send a valid request.', 415);
   if (Number(request.headers.get('content-length') || 0) > MAX_BODY_BYTES) throw new QuoteInputError('This request is too large.', 413);
   const reader = request.body?.getReader();
-  if (!reader) throw new QuoteInputError('Please enter your design and contact details.');
+  if (!reader) throw new QuoteInputError('Please enter your contact details.');
   const parts = []; let size = 0;
   while (true) {
     const chunk = await reader.read();
@@ -106,7 +162,7 @@ async function body(request) {
   }
   const bytes = new Uint8Array(size); let offset = 0;
   for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
-  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new QuoteInputError('Please send a valid quote request.'); }
+  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new QuoteInputError('Please send a valid request.'); }
 }
 
 export function createQuoteHandler({ getStore, now = () => Date.now(), makeToken = () => randomBytes(32).toString('hex'), makeId = randomUUID } = {}) {
@@ -114,9 +170,9 @@ export function createQuoteHandler({ getStore, now = () => Date.now(), makeToken
     if (request.method !== 'POST') return response({ error: 'Please submit your design and contact details to unlock your estimate.' }, 405, { Allow: 'POST' });
     try {
       sameOrigin(request);
-      const input = await body(request);
-      if (!object(input)) throw new QuoteInputError('Please check your quote request.');
-      knownKeys(input, ['config', 'lead', 'requestId', 'botField']);
+      const input = await readJsonBody(request);
+      if (!isPlainObject(input)) throw new QuoteInputError('Please check your quote request.');
+      assertKnownKeys(input, ['config', 'lead', 'requestId', 'botField']);
       if (input.botField !== undefined && (typeof input.botField !== 'string' || input.botField.trim())) throw new QuoteInputError('We could not accept this request.');
       const design = validateConfig(input.config);
       const timestamp = new Date(now()).toISOString();
@@ -146,7 +202,7 @@ export function createQuoteHandler({ getStore, now = () => Date.now(), makeToken
       const fingerprint = digest(JSON.stringify({ lead, config: design }));
       const reference = `MR-${leadId.slice(0, 8).toUpperCase()}`;
       const quote = calculateQuote(design, { reference, createdAt: timestamp });
-      const record = { id: leadId, createdAt: timestamp, lead, config: design, quote, fingerprint, source: 'Make Room Outside Living configurator', consent: { enquiryRequested: true, marketing: lead.marketing, privacyUrl: '/privacy.html', companyPrivacyUrl: 'https://www.makeroomoutside.co.uk/privacy-policy/' } };
+      const record = { id: leadId, createdAt: timestamp, submittedAt: timestamp, lead, config: design, quote, fingerprint, source: LEAD_SOURCE, consent: { enquiryRequested: true, marketing: lead.marketing, privacyUrl: '/privacy.html', companyPrivacyUrl: 'https://www.makeroomoutside.co.uk/privacy-policy/' } };
       const result = await store.setJSON(`leads/${leadId}`, record, { onlyIfNew: true });
       let saved = record;
       if (!result.modified) {
