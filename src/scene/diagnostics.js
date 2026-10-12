@@ -104,6 +104,9 @@ export function report(extra = {}) {
 export function send(reason, extra) {
   const key = `${reason}`;
   if (sent.has(key)) return;
+  // Netlify's deploy screenshots and crawlers run headless with no GPU; their
+  // "no-webgl" reports would bury the real devices.
+  if (/HeadlessChrome|bot\b|crawler|spider/i.test(navigator.userAgent)) return;
   sent.add(key);
   const body = JSON.stringify({ reason, ...report(extra) }).slice(0, 7800);
   try {
