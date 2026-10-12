@@ -22,26 +22,27 @@
     "sheetName": "Configurators",
     "row": 14,
     "columns": {
-      "status": "C",
-      "github": "F",
-      "netlify": "G",
-      "pdf": "H"
+      "qa": "A",
+      "status": "D",
+      "github": "G",
+      "netlify": "H",
+      "pdf": "I"
     },
-    "updatedAt": "2026-10-11",
+    "updatedAt": "2026-10-12",
     "status": "Live (in GitHub)",
-    "examplePdfUrl": "https://drive.google.com/file/d/1uRyXA43NTYey7qE19_U1qvInaAUzWz9Y/view?usp=drivesdk",
-    "examplePdfVisibility": "owner-only",
+    "examplePdfUrl": "https://github.com/generateleadsonline/make-room-configurator/blob/073be0a0fd09fda18f48aa12ab66b9b0b680c537/docs/examples/make-room-outside-living-reviewed-example-2026-10-12.pdf",
+    "examplePdfVisibility": "public repository",
     "verifiedFields": [
-      "C14",
-      "F14",
-      "G14",
-      "H14"
+      "I14"
     ]
   },
   "liveConfiguratorUrl": "https://make-room-configurator.netlify.app/configurator/",
-  "verifiedImplementationCommit": "bbb96bec08bea9fa47f127001c8eda0637d580f8",
-  "verifiedDeployId": "6acb6552213b7e00081c8608",
-  "publishedAt": "2026-10-11T10:31:03.280Z",
+  "verifiedImplementationCommit": "073be0a0fd09fda18f48aa12ab66b9b0b680c537",
+  "publishedAt": "2026-10-12",
   "leadStorage": "Private Netlify Blobs (make-room-leads), not native Netlify Forms",
-  "crmDelivery": "Not configured; requests are stored privately for operator review"
+  "crmDelivery": "Not configured; quotes, callback/visit/brochure requests and PDFs are stored privately in Netlify Blobs",
+  "previousRelease": {
+    "tag": "v1-configurator",
+    "commit": "34237c7c5ab0e86feab6db6267e55bd73f0b9e44"
+  }
 }
