@@ -60,9 +60,10 @@ New behaviour:
 - **Crash guard:** render-loop errors, shader compile/link errors, scene build and update throws, and three context losses in 90 seconds all enter safe mode.
 - **Across page loads:** a start killed outright leaves a boot marker, so the next load starts safe. Leaving or hiding the page clears the marker, so a quick reload is not a crash. A kill in safe mode shows the photo, so there is no crash loop.
 - **Diagnostics:** failures POST a report to `/api/diag`, stored in the private Blobs store `make-room-diagnostics` under `reports/<date>/<code>-<reason>-<id>`. The report holds the GPU name, device facts, the failing stage, the error and a timeline, with no personal data. The failure card shows the code (e.g. `MR-3D-CRASH-6D4120`) and a "Copy details" button. `?debug3d=1` shows a live panel, and `?safe3d=1|0` forces safe mode or full 3D.
+- **Filtered and complete:** headless browsers and crawlers don't report (Netlify's deploy screenshot filed a "no-webgl" report on every deploy). A visit after a hard crash probes the GPU first, so the only record of that crash still names the device's graphics chip.
 - **Read a device's report:** `netlify blobs:list make-room-diagnostics`, then `netlify blobs:get make-room-diagnostics <key>`.
 
-Verified on a draft of the production build, with a Pixel 10 profile in Chrome and fault injection (`?mr3dfault=`):
+Verified on a draft, and again on production after release (QA reports deleted from the store afterwards), with a Pixel 10 profile in Chrome and fault injection (`?mr3dfault=`):
 
 | Case | Result |
 |---|---|

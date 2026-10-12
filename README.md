@@ -8,7 +8,7 @@ Live: https://make-room-configurator.netlify.app/configurator/
 
 - **Catalogue parity** with Make Room's Salesqueze configurator: 16 module sizes and the width/length table, per-wall cladding (32 finishes, plus 3 brick slips on extensions), 12 doors and 9 windows in aluminium or uPVC with black or anthracite frames, left-offset positioning with the 100mm edge gap, overhang 300–600mm and decking 600–5000mm on any wall, 5 decking colours, 4 floors, 3 electrical packages. See `docs/cross-reference-2026-10-12.md`.
 - **3D that looks like Make Room's buildings**: the porch overhang carries the side walls forward with a clad soffit, anthracite fascia with a fall to the back, up/down wall lights by the doors, soffit downlights, 100mm decking with black edge trim, and extensions built against a house wall. Cladding textures are rebuilt from Make Room's own catalogue photographs with relief maps from its renderer.
-- **Runs on phones and older browsers**: WebGL 2 or 1 (Three.js r162), quality tiers per device, automatic recovery when a phone reclaims the GPU, iOS 13+ / Chrome 70+ syntax with polyfills, and a side-by-side layout for phones held sideways.
+- **Runs on phones and older browsers**: WebGL 2 or 1 (Three.js r162), quality tiers per device, automatic recovery when a phone reclaims the GPU, a crash guard that drops to a simplified safe mode before giving up (remembered per device, across page loads), iOS 13+ / Chrome 70+ syntax with polyfills, and a side-by-side layout for phones held sideways.
 - **Outside, inside and plan views**, zoom (wheel, pinch, buttons, + and − keys), measurements, day or dusk lighting, undo/redo, full screen.
 - **The view follows each change**: changing a wall, door, overhang, deck, floor or lighting turns the camera to it and pulses a highlight over it; the chosen option card flashes.
 - **Sales actions everywhere**: request a callback, arrange a show village visit or request a brochure from the header, the price page and the PDF (`/api/request`). First and last names are separate, and the phone number is required and checked as a real UK number (Ofcom drama numbers and premium ranges refused).
@@ -17,13 +17,15 @@ Live: https://make-room-configurator.netlify.app/configurator/
 
 ## Local work
 
-`npm install`, then `npm test` (26 tests) and `npm run build`. For the full stack use `netlify dev --offline` (configured in `netlify.toml`: app on 4964, Vite on 4965); plain `npm run dev` serves the UI without the functions.
+`npm install`, then `npm test` (29 tests) and `npm run build`. For the full stack use `netlify dev --offline` (configured in `netlify.toml`: app on 4964, Vite on 4965); plain `npm run dev` serves the UI without the functions.
 
 QA tools:
 
 - `tools/qa-options.mjs`: open the dev server, then in the console `await (await import('/tools/qa-options.mjs')).run(window.__mr)`. It builds every option into the 3D engine and checks the right part changed (795 checks).
 - `scene-test.html`: the 3D engine alone, e.g. `/scene-test.html?view=plan&light=evening&dims=1`.
 - `window.__mr.debug()` reports the scene, camera and draw calls.
+- 3D on a problem device: add `?debug3d=1` for a live panel (mode, tier, GPU, timeline), `?safe3d=1` or `?safe3d=0` to force safe mode or full 3D, and `?mr3dfault=init|render|shader` (add `-normal` to fail only full 3D) to rehearse the fallbacks.
+- 3D failure reports: each failure, and any visit after a crash, posts a report without personal data (device, GPU, stage, error, timeline) to `/api/diag`. The failure card shows its code, e.g. `MR-3D-CRASH-6D4120`. Read them with `netlify blobs:list make-room-diagnostics`, then `netlify blobs:get make-room-diagnostics <key>`. Headless browsers and crawlers, including Netlify's deploy screenshot, don't report.
 
 ## Code map
 
@@ -32,7 +34,8 @@ QA tools:
 - `src/ui/`: viewer, steps, price step and lead form, enquiry drawer, tour. `src/App.jsx` holds state and history.
 - `src/content.js`: every customer-facing claim (USPs, show village, process), each taken from Make Room's site on 12 October 2026.
 - `src/validation.js`: name, email, postcode and UK phone rules shared by browser and server.
-- `server/`, `netlify/functions/`: quote, design pack and request endpoints; Netlify Blobs storage.
+- `src/scene/diagnostics.js`: GPU probe, failure reports, the crash marker that carries across page loads. `src/ui/Viewer.jsx` runs the fallback chain (full 3D, safe mode, photograph) and retry.
+- `server/`, `netlify/functions/`: quote, design pack, request and diagnostics endpoints; Netlify Blobs storage.
 
 ## Pricing and launch status
 
