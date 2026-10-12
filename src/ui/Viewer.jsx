@@ -109,7 +109,9 @@ const Viewer = forwardRef(function Viewer({ config, view, onView, lighting, onLi
     const crashed = boot.previousCrash();
     if (crashed) {
       log("guard:previous-crash", crashed.mode);
-      diag.send("previous-crash", { previousMode: crashed.mode });
+      // The crashed visit could not report itself, so this is the only record
+      // of which GPU went down: probe it before sending.
+      diag.send("previous-crash", { previousMode: crashed.mode, gpu: probeWebGL() });
       // Safe mode itself took the page down last time: show the photo
       // rather than risk a crash loop. "Try again" still offers 3D.
       if (crashed.mode === "safe") return "none";
