@@ -469,7 +469,14 @@ input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius
   .package ul { columns: 1; }
   .price { font-size: 38px; }
 }
-@media (pointer: coarse) { .hide-coarse { display: none; } }
+@media (pointer: coarse) {
+  .hide-coarse { display: none; }
+  input[type="range"] { height: 40px; }
+  .link-button { min-height: 40px; }
+}
+@media (max-width: 767px) and (max-height: 700px) {
+  .stage { height: clamp(210px, 36vh, 300px); }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
 }
