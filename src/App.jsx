@@ -111,8 +111,10 @@ function Header({ onRequest, menuOpen, setMenuOpen }) {
 export default function App() {
   const [config, setConfig] = useState(initialConfig);
   const configRef = useRef(config);
-  const [past, setPast] = useState([]);
-  const [future, setFuture] = useState([]);
+  // Undo history lives in a ref so undo/redo read and write it synchronously;
+  // `historyTick` re-renders the buttons.
+  const undoStack = useRef({ past: [], future: [] });
+  const [, setHistoryTick] = useState(0);
   const [step, setStep] = useState(0);
   const [view, setView] = useState("outside");
   const [lighting, setLighting] = useState("day");
@@ -163,8 +165,8 @@ export default function App() {
       const lost = (draft.openings || []).filter((o) => !next.openings.some((n) => n.id === o.id));
       configRef.current = next;
       setConfig(next);
-      setPast((p) => [...p.slice(-59), prev]);
-      setFuture([]);
+      undoStack.current = { past: [...undoStack.current.past.slice(-59), prev], future: [] };
+      setHistoryTick((t) => t + 1);
       focusOn(spec);
       if (flashKey) {
         setFlash(flashKey);
@@ -173,37 +175,44 @@ export default function App() {
       }
       if (lost.length) {
         const names = lost.map((o) => `${openingById(o.product).label} (${WALL_LABELS[o.wall]})`).join(", ");
-        say(`${names} no longer ${lost.length > 1 ? "fit" : "fits"} at this size, so we took ${lost.length > 1 ? "them" : "it"} out.`, true);
+        const plural = lost.length > 1;
+        if (next.type === "extension" && lost.every((o) => o.wall === "back")) say(`An extension's back wall joins your house, so we took out ${names}.`, true);
+        else say(`${names} no longer ${plural ? "fit" : "fits"} at this size, so we took ${plural ? "them" : "it"} out.`, true);
       }
     },
     [focusOn, say],
   );
-  const undo = useCallback(() => {
-    setPast((p) => {
-      if (!p.length) return p;
-      const prev = p.at(-1);
-      setFuture((f) => [configRef.current, ...f]);
-      configRef.current = prev;
-      setConfig(prev);
+  const travel = useCallback(
+    (direction) => {
+      const { past, future } = undoStack.current;
+      const current = configRef.current;
+      if (direction < 0 && past.length) {
+        configRef.current = past.at(-1);
+        undoStack.current = { past: past.slice(0, -1), future: [current, ...future] };
+      } else if (direction > 0 && future.length) {
+        configRef.current = future[0];
+        undoStack.current = { past: [...past, current], future: future.slice(1) };
+      } else return;
+      setConfig(configRef.current);
+      setHistoryTick((t) => t + 1);
       focusOn({ type: "overview" });
-      return p.slice(0, -1);
-    });
-  }, [focusOn]);
-  const redo = useCallback(() => {
-    setFuture((f) => {
-      if (!f.length) return f;
-      const next = f[0];
-      setPast((p) => [...p, configRef.current]);
-      configRef.current = next;
-      setConfig(next);
-      focusOn({ type: "overview" });
-      return f.slice(1);
-    });
-  }, [focusOn]);
+    },
+    [focusOn],
+  );
+  const undo = useCallback(() => travel(-1), [travel]);
+  const redo = useCallback(() => travel(1), [travel]);
 
   useEffect(() => {
     write(STORE, JSON.stringify(config));
   }, [config]);
+  // Share, QR and PDF links are read once; drop them so a reload keeps edits.
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (["d", "design", "request"].some((k) => url.searchParams.has(k))) {
+      for (const k of ["d", "design", "request"]) url.searchParams.delete(k);
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+  }, []);
   useEffect(() => {
     const onKey = (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.target.closest?.("input, textarea, select")) return;
@@ -274,8 +283,8 @@ export default function App() {
       requestId.current = uuid();
       track("quote_unlocked");
     } catch (err) {
-      if (err.status === 401) {
-        setUnlocked(false);
+      if (err.status === 401 || err.status === 409) {
+        if (err.status === 401) setUnlocked(false);
         requestId.current = uuid();
       }
       if (err.field) {
@@ -331,6 +340,8 @@ export default function App() {
     setDrawer(topic);
     track("request_open", { topic });
   };
+  const closeDrawer = useCallback(() => setDrawer(null), []);
+  const onRequestSent = useCallback((t, who) => setKnown((k) => ({ ...(k || {}), ...who })), []);
   const endTour = () => {
     setTour(null);
     write(TOUR_KEY, "1");
@@ -365,8 +376,8 @@ export default function App() {
             onDims={setDims}
             focus={focus}
             onHelp={() => setTour("tour")}
-            canUndo={past.length > 0}
-            canRedo={future.length > 0}
+            canUndo={undoStack.current.past.length > 0}
+            canRedo={undoStack.current.future.length > 0}
             onUndo={undo}
             onRedo={redo}
           />
@@ -449,10 +460,10 @@ export default function App() {
         <EnquiryDrawer
           topic={drawer}
           onTopic={setDrawer}
-          onClose={() => setDrawer(null)}
+          onClose={closeDrawer}
           config={config}
           known={known || (lead.firstName ? lead : null)}
-          onSent={(t, who) => setKnown((k) => ({ ...(k || {}), ...who }))}
+          onSent={onRequestSent}
         />
       )}
       {tour === "welcome" && <Welcome onStart={() => setTour("tour")} onSkip={endTour} />}

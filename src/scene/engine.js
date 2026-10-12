@@ -674,6 +674,7 @@ export class Engine {
     this.sun.shadow.map = null;
     const shots = {},
       meta = {};
+    let ground = null;
     const shoot = (name, w, h, setup) => {
       r.setSize(w, h, false);
       this.camera.aspect = w / h;
@@ -762,7 +763,7 @@ export class Engine {
       }
       this.landscape.visible = false;
       this.scene.background = new THREE.Color("#ffffff");
-      const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: "#e9e7e1", roughness: 1 }));
+      ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: "#e9e7e1", roughness: 1 }));
       ground.rotation.x = -Math.PI / 2;
       ground.receiveShadow = true;
       this.scene.add(ground);
@@ -795,12 +796,18 @@ export class Engine {
         });
         meta.elevations[wall] = { u0, u1, v0, v1, length: L, rotY: f.rotY };
       }
-      this.scene.remove(ground);
-      ground.geometry.dispose();
-      ground.material.dispose();
+    } finally {
+      // Put the live scene back exactly as it was, even if a capture failed.
+      if (ground) {
+        this.scene.remove(ground);
+        ground.geometry.dispose();
+        ground.material.dispose();
+      }
       this.landscape.visible = true;
       this.shadowDecal.visible = true;
-    } finally {
+      this.landscape.traverse((o) => o.userData.tall && (o.visible = true));
+      if (this.dimLines) this.dimLines.visible = true;
+      this.camera.near = 0.05;
       this.sun.shadow.mapSize.set(saved.shadow, saved.shadow);
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;

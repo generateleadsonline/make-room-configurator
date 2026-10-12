@@ -21,10 +21,13 @@ const Viewer = forwardRef(function Viewer({ config, view, onView, lighting, onLi
     overlay = useRef(null),
     stage = useRef(null),
     engine = useRef(null),
-    viewRef = useRef(view);
+    viewRef = useRef(view),
+    latest = useRef({ config, lighting, dims });
   const [state, setState] = useState("loading");
   const [full, setFull] = useState(false);
   viewRef.current = view;
+  // The engine loads lazily; it must start from the latest state, not the first.
+  latest.current = { config, lighting, dims };
 
   useImperativeHandle(ref, () => ({
     capturePack: (opts) => engine.current?.capturePack(opts) ?? Promise.resolve(null),
@@ -41,10 +44,10 @@ const Viewer = forwardRef(function Viewer({ config, view, onView, lighting, onLi
           const e = new Engine(host.current, overlay.current, { quality: small ? "medium" : "high", onReady: () => setState("ready") });
           engine.current = e;
           window.__mr = e;
-          e.setConfig(config);
+          e.setConfig(latest.current.config);
           e.setView(viewRef.current, { animate: false });
-          e.setLighting(lighting);
-          e.setDims(dims);
+          e.setLighting(latest.current.lighting);
+          e.setDims(latest.current.dims);
           e.renderer.domElement.addEventListener("webglcontextlost", (ev) => {
             ev.preventDefault();
             setState("failed");

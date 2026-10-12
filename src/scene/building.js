@@ -785,7 +785,7 @@ function buildPlanSection(c) {
   const y = CEILING_Y + 0.05,
     poche = basic("poche", { color: "#2d3a2b", roughness: 1 }),
     glass = basic("planglass", { color: "#8fb3c0", roughness: 1 }),
-    swing = new THREE.LineBasicMaterial({ color: "#526f41" });
+    swing = (mats.swing ||= new THREE.LineBasicMaterial({ color: "#526f41" }));
   for (const wall of WALLS) {
     if (c.type === "extension" && wall === "back") continue;
     const L = wallLength(c, wall),

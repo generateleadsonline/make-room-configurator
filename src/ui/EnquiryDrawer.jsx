@@ -29,11 +29,14 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
   const requestId = useRef(uuid());
   const t = topic === "custom" ? "callback" : topic;
   const copy = COPY[t];
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  // Focus the first field when the drawer opens; trap Tab inside it.
   useEffect(() => {
     const prev = document.activeElement;
-    panel.current?.querySelector("input, button")?.focus();
+    panel.current?.querySelector("form input, button")?.focus();
     const onKey = (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") closeRef.current();
       if (e.key === "Tab" && panel.current) {
         const items = [...panel.current.querySelectorAll("button, input, select, textarea, a[href]")].filter((x) => !x.disabled && x.offsetParent);
         if (!items.length) return;
@@ -48,7 +51,7 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
       document.removeEventListener("keydown", onKey);
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
   const set = (k) => (v) => {
     setForm((f) => ({ ...f, [k]: v }));
     if (errors[k]) setErrors((e) => ({ ...e, [k]: undefined }));
@@ -90,6 +93,8 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
         throw new Error(data.error || "We couldn't send that just now.");
       }
       setSent({ reference: data.reference, phone: ph.national, first: fn.value });
+      // A further request (another topic, or the same one again) is a new record.
+      requestId.current = uuid();
       onSent?.(t, { firstName: fn.value, lastName: ln.value, phone: ph.national, email: form.email, postcode: form.postcode });
       window.dataLayer?.push({ event: `make_room_request_${t}` });
     } catch (err) {
@@ -103,7 +108,12 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
       <div ref={panel} className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
         <div className="drawer-tabs" role="tablist" aria-label="How can we help?">
           {Object.entries(COPY).map(([id, c]) => (
-            <button key={id} type="button" role="tab" aria-selected={t === id} className={t === id ? "is-on" : ""} onClick={() => (onTopic(id), setSent(null))}>
+            <button key={id} type="button" role="tab" aria-selected={t === id} className={t === id ? "is-on" : ""} onClick={() => {
+                onTopic(id);
+                setSent(null);
+                setFailure("");
+                requestId.current = uuid();
+              }}>
               {c.icon}
               <span>{c.title.replace("Request a ", "").replace("Visit the ", "")}</span>
             </button>

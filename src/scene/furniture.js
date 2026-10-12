@@ -6,7 +6,7 @@ import { openingById, WALLS, wallLength } from "../catalog.js";
 
 const cache = {};
 function mat(key, params) {
-  if (!cache[key]) cache[key] = new THREE.MeshStandardMaterial({ roughness: 0.8, ...params });
+  if (!cache[key]) cache[key] = new THREE.MeshStandardMaterial({ roughness: 0.8, ...(typeof params === "function" ? params() : params) });
   return cache[key];
 }
 function woodCanvas(base) {
@@ -33,7 +33,7 @@ function woodCanvas(base) {
   return t;
 }
 const M = {
-  oak: () => mat("oak", { color: "#ffffff", map: woodCanvas("#c79f6c"), roughness: 0.6 }),
+  oak: () => mat("oak", () => ({ color: "#ffffff", map: woodCanvas("#c79f6c"), roughness: 0.6 })),
   black: () => mat("black", { color: "#26292b", roughness: 0.45, metalness: 0.4 }),
   white: () => mat("white", { color: "#f1f0ea", roughness: 0.5 }),
   fabric: () => mat("fabric", { color: "#7d8b76", roughness: 1 }),

@@ -306,7 +306,7 @@ function WallStrip({ config, wall, selected, onSelect }) {
   );
 }
 
-function OpeningCard({ config, o, tag, selected, onSelect, change }) {
+function OpeningCard({ config, o, tag, selected, onSelect, change, onMoved }) {
   const p = openingById(o.product);
   const L = wallLength(config, o.wall);
   const lo = EDGE_GAP + p.width / 2,
@@ -392,6 +392,8 @@ function OpeningCard({ config, o, tag, selected, onSelect, change }) {
                 { type: "opening", id: o.id },
                 `opening:${o.id}`,
               );
+              // Follow the opening to its new wall so its card stays in view.
+              onMoved?.(wall, o.id);
             }}
           >
             {wallsFor(config.type).map((w) => (
@@ -487,7 +489,20 @@ export function OpeningsStep({ config, change, wall, setWall }) {
         {onWall.length === 0 && <p className="empty">No doors or windows on this wall yet. Add one below, or leave it solid for privacy and wall space.</p>}
         <div className="opening-list">
           {onWall.map((o) => (
-            <OpeningCard key={o.id} config={config} o={o} tag={tags[o.id]} selected={selected === o.id} onSelect={() => setSelected(o.id)} change={change} />
+            <OpeningCard
+              key={o.id}
+              config={config}
+              o={o}
+              tag={tags[o.id]}
+              selected={selected === o.id}
+              onSelect={() => setSelected(o.id)}
+              change={change}
+              onMoved={(w, id) => {
+                setWall(w);
+                setSelected(id);
+                requestAnimationFrame(() => document.getElementById(`pos-${id}`)?.focus());
+              }}
+            />
           ))}
         </div>
         <div className="add-row">
