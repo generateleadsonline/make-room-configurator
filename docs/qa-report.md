@@ -92,6 +92,8 @@ The 15 October configurator audit passed this build on every point of GLO's stan
 - `npm test`: 30 pass, including a new book-call test (stored as *Book a call* with day, slot and normalised contact; ten rejected variants: no email, no or bad postcode, no day, Saturday, past, beyond 31 days, unknown or missing slot, Ofcom drama number).
 - Headless Chrome (Metal), local build with the real handlers on an in-memory store, 1440 × 900 and 390 × 844, fresh contexts: 26/26 checks pass. The canvas shows within 2.9 s and the welcome tour opens by itself. The price is hidden before the form is sent; Book a call and Download PDF are both on the price step. Empty submit shows 7 errors and sends nothing. A valid booking posts `topic: "book-call"` with every field, shows the confirmation and reference, and both dataLayer events fire. After unlocking, the estimate (from £19,200 for the default design), Book a call and the PDF button are all shown.
 - three stays pinned at 0.162.0 (no 3D code changed).
+- **Live** (Git-linked deploy `6ad0d50660b96bb0ece640fc` from fdeb89d): the same headless checks against https://make-room-configurator.netlify.app/configurator/ with every POST answered inside the browser (Playwright `route.fulfill`), so nothing reached the live store: 24/24 pass at both sizes (canvas within 6.2 s and the tour within 7.7 s on desktop, under a machine load near 40).
+- For Make Room to confirm: the hours for booked calls (offered Monday to Friday, 9am to 5pm).
 
 ## Known limits
 
