@@ -1,15 +1,15 @@
-import { BEST_TIMES, REQUEST_TOPICS, normaliseUkPhone, validateEmail, validateName, validatePostcode } from '../src/validation.js';
+import { BEST_TIMES, BOOKING_SLOTS, BOOKING_WINDOW_DAYS, REQUEST_TOPICS, normaliseUkPhone, validateEmail, validateName, validatePostcode } from '../src/validation.js';
 import { designReferenceFor } from './pricing.mjs';
 import {
   QuoteInputError, UUID, LEAD_SOURCE, acceptedSession, assertKnownKeys, checked, cleanText, digest, enquiryStore,
   isPlainObject, optionOf, optionalBoolean, readJsonBody, sameOrigin, validateConfig,
 } from './quote-service.mjs';
 
-// Callback, show-village visit and brochure requests. Saved privately beside
+// Callback, book-a-call, show-village visit and brochure requests. Saved privately beside
 // quote enquiries in the same Netlify Blobs store under requests/{requestId}.
 const DAY = 24 * 60 * 60 * 1000;
 export const PREFERRED_DATE_WINDOW_DAYS = 120;
-export const REQUEST_FIELDS = ['topic', 'firstName', 'lastName', 'phone', 'email', 'postcode', 'bestTime', 'preferredDate', 'notes', 'marketing', 'config', 'requestId', 'botField'];
+export const REQUEST_FIELDS = ['topic', 'firstName', 'lastName', 'phone', 'email', 'postcode', 'bestTime', 'preferredDate', 'preferredTime', 'notes', 'marketing', 'config', 'requestId', 'botField'];
 const HEADERS = { 'Cache-Control': 'private, no-store, max-age=0', 'X-Content-Type-Options': 'nosniff' };
 const json = (data, status = 200, extra = {}) => Response.json(data, { status, headers: { ...HEADERS, ...extra } });
 const blank = (value) => value === undefined || value === null || (typeof value === 'string' && !value.trim());
@@ -29,24 +29,40 @@ export function validatePreferredDate(value, nowMs) {
   return text;
 }
 
+// A booked call needs a real weekday between today and BOOKING_WINDOW_DAYS ahead.
+export function validateBookingDay(value, nowMs) {
+  if (blank(value)) throw new QuoteInputError('Please choose a day for your call.', 400, 'preferredDate');
+  const text = validatePreferredDate(value, nowMs);
+  const [y, m, d] = text.split('-').map(Number);
+  const day = Date.UTC(y, m - 1, d);
+  const now = new Date(nowMs);
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const weekday = new Date(day).getUTCDay();
+  if (weekday === 0 || weekday === 6 || day > today + BOOKING_WINDOW_DAYS * DAY) throw new QuoteInputError('Please choose a weekday in the next four weeks.', 400, 'preferredDate');
+  return text;
+}
+
 export function validateRequest(input, nowMs = Date.now()) {
   if (!isPlainObject(input)) throw new QuoteInputError('Please enter your contact details.');
   assertKnownKeys(input, REQUEST_FIELDS);
   if (input.botField !== undefined && (typeof input.botField !== 'string' || input.botField.trim())) throw new QuoteInputError('We could not accept this request.');
   if (typeof input.topic !== 'string' || !Object.hasOwn(REQUEST_TOPICS, input.topic)) throw new QuoteInputError('Please choose what you would like us to arrange.', 400, 'topic');
   const topic = input.topic;
+  const booking = topic === 'book-call';
   const firstName = checked(validateName(input.firstName, 'first name'), 'firstName').value;
   const lastName = checked(validateName(input.lastName, 'last name'), 'lastName').value;
   const phone = checked(normaliseUkPhone(input.phone), 'phone');
-  // A brochure needs somewhere to go; callbacks and visits only need a phone number.
-  const email = topic === 'brochure' || !blank(input.email) ? checked(validateEmail(input.email), 'email').value : '';
-  const postcode = blank(input.postcode) ? '' : checked(validatePostcode(input.postcode), 'postcode').value;
+  // A brochure needs somewhere to go and a booked call is confirmed by email; callbacks and visits only need a phone number.
+  const email = topic === 'brochure' || booking || !blank(input.email) ? checked(validateEmail(input.email), 'email').value : '';
+  const postcode = booking || !blank(input.postcode) ? checked(validatePostcode(input.postcode), 'postcode').value : '';
+  if (booking && !BOOKING_SLOTS.includes(input.preferredTime)) throw new QuoteInputError('Please choose a time for your call.', 400, 'preferredTime');
   const config = input.config === undefined || input.config === null ? null : validateConfig(input.config);
   return {
     topic,
     contact: { firstName, lastName, phone: phone.national, phoneE164: phone.e164, email, postcode },
-    bestTime: optionOf(input.bestTime, BEST_TIMES, 'bestTime', 'best time to call'),
-    preferredDate: validatePreferredDate(input.preferredDate, nowMs),
+    bestTime: booking ? '' : optionOf(input.bestTime, BEST_TIMES, 'bestTime', 'best time to call'),
+    preferredDate: booking ? validateBookingDay(input.preferredDate, nowMs) : validatePreferredDate(input.preferredDate, nowMs),
+    preferredTime: booking ? input.preferredTime : '',
     notes: cleanText(input.notes, 'notes', { max: 1200, multiline: true, label: 'notes' }),
     marketing: optionalBoolean(input.marketing, 'marketing'),
     config,
@@ -88,6 +104,7 @@ export function createRequestHandler({ getStore, now = () => Date.now() } = {}) 
         contact: details.contact,
         bestTime: details.bestTime,
         preferredDate: details.preferredDate,
+        preferredTime: details.preferredTime,
         notes: details.notes,
         config: details.config,
         designReference: details.config ? designReferenceFor(details.config) : null,

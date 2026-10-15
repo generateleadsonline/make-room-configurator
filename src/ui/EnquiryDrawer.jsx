@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
-import { X, PhoneCall, MapPin, BookOpen, Clock, Navigation, CheckCheck, ArrowRight } from "lucide-react";
+import { X, PhoneCall, CalendarDays, MapPin, BookOpen, Clock, Navigation, CheckCheck, ArrowRight } from "lucide-react";
 import { CONTACT, SHOW_VILLAGE, BROCHURE_URL } from "../content.js";
-import { normaliseUkPhone, validateName, validateEmail, validatePostcode, BEST_TIMES } from "../validation.js";
+import { normaliseUkPhone, validateName, validateEmail, validatePostcode, BEST_TIMES, BOOKING_SLOTS } from "../validation.js";
 import { Field } from "./controls.jsx";
 import { PhoneInput } from "./PriceStep.jsx";
 
 const COPY = {
   callback: { icon: <PhoneCall size={22} />, title: "Request a callback", intro: "Leave your number and a Make Room designer will call you to talk your room through. Someone from our team will be in contact within 48 hours.", button: "Request my callback" },
+  "book-call": { icon: <CalendarDays size={22} />, title: "Book a call", intro: "Pick a day and time to talk it through. A Make Room designer will call you then about your room, your garden and next steps.", button: "Book my call" },
   visit: { icon: <MapPin size={22} />, title: "Visit the show village", intro: SHOW_VILLAGE.claim, button: "Arrange my visit" },
   brochure: { icon: <BookOpen size={22} />, title: "Request a brochure", intro: "We'll send you the Make Room brochure, with finishes, specification and ideas for your space.", button: "Send me a brochure" },
 };
@@ -15,12 +16,26 @@ function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (+c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (+c / 4)))).toString(16));
 }
 const today = () => new Date().toISOString().slice(0, 10);
+// Booked calls: the next ten weekdays (UK time), as the server accepts.
+const dayLabel = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+function bookingDays(count = 10) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  const d = new Date(`${p.year}-${p.month}-${p.day}T12:00:00Z`);
+  const out = [];
+  while (out.length < count) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+    const iso = d.toISOString().slice(0, 10);
+    out.push({ value: iso, label: dayLabel(iso) });
+  }
+  return out;
+}
 const inDays = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
 // One form for the three sales actions. Prefills from the price form when the
 // visitor has already given their details, and attaches the current design.
 export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, onSent }) {
-  const [form, setForm] = useState(() => ({ firstName: known?.firstName || "", lastName: known?.lastName || "", phone: known?.phone || "", email: known?.email || "", postcode: known?.postcode || "", bestTime: "", preferredDate: "", notes: topic === "custom" ? "I'd like to discuss a custom size." : "", marketing: false }));
+  const [form, setForm] = useState(() => ({ firstName: known?.firstName || "", lastName: known?.lastName || "", phone: known?.phone || "", email: known?.email || "", postcode: known?.postcode || "", bestTime: "", preferredDate: "", preferredTime: "", notes: topic === "custom" ? "I'd like to discuss a custom size." : "", marketing: false }));
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(null);
@@ -29,6 +44,8 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
   const requestId = useRef(uuid());
   const t = topic === "custom" ? "callback" : topic;
   const copy = COPY[t];
+  const booking = t === "book-call";
+  const [days] = useState(bookingDays);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   // Focus the first field when the drawer opens; trap Tab inside it.
@@ -65,14 +82,16 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
     if (!ln.ok) errs.lastName = ln.error;
     const ph = normaliseUkPhone(form.phone);
     if (!ph.ok) errs.phone = ph.error;
-    if (t === "brochure" || form.email) {
+    if (t === "brochure" || booking || form.email) {
       const em = validateEmail(form.email);
       if (!em.ok) errs.email = em.error;
     }
-    if (form.postcode) {
+    if (booking || form.postcode) {
       const pc = validatePostcode(form.postcode);
       if (!pc.ok) errs.postcode = pc.error;
     }
+    if (booking && !form.preferredDate) errs.preferredDate = "Please choose a day for your call.";
+    if (booking && !form.preferredTime) errs.preferredTime = "Please choose a time for your call.";
     setErrors(errs);
     if (Object.keys(errs).length) {
       panel.current?.querySelector(`#rq-${Object.keys(errs)[0]}`)?.focus();
@@ -85,18 +104,18 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: t, firstName: form.firstName, lastName: form.lastName, phone: ph.national, email: form.email, postcode: form.postcode, bestTime: form.bestTime, preferredDate: form.preferredDate, notes: form.notes, marketing: form.marketing, config, requestId: requestId.current, botField: "" }),
+        body: JSON.stringify({ topic: t, firstName: form.firstName, lastName: form.lastName, phone: ph.national, email: form.email, postcode: form.postcode, bestTime: booking ? "" : form.bestTime, preferredDate: t === "visit" || booking ? form.preferredDate : "", ...(booking ? { preferredTime: form.preferredTime } : {}), notes: form.notes, marketing: form.marketing, config, requestId: requestId.current, botField: "" }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.saved) {
         if (data.field) setErrors({ [data.field]: data.error });
         throw new Error(data.error || "We couldn't send that just now.");
       }
-      setSent({ reference: data.reference, phone: ph.national, first: fn.value });
+      setSent({ reference: data.reference, phone: ph.national, first: fn.value, when: booking ? `${dayLabel(form.preferredDate)}, ${form.preferredTime}` : "" });
       // A further request (another topic, or the same one again) is a new record.
       requestId.current = uuid();
       onSent?.(t, { firstName: fn.value, lastName: ln.value, phone: ph.national, email: form.email, postcode: form.postcode });
-      window.dataLayer?.push({ event: `make_room_request_${t}` });
+      window.dataLayer?.push({ event: `make_room_request_${t.replace("-", "_")}`, ...(booking ? { preferred_day: form.preferredDate, preferred_time: form.preferredTime } : {}) });
     } catch (err) {
       setFailure(`${err.message} Please try again, or call us on ${CONTACT.phone}.`);
     } finally {
@@ -108,7 +127,7 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
       <div ref={panel} className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
         <div className="drawer-tabs" role="tablist" aria-label="How can we help?">
           {Object.entries(COPY).map(([id, c]) => (
-            <button key={id} type="button" role="tab" aria-selected={t === id} className={t === id ? "is-on" : ""} onClick={() => {
+            <button key={id} type="button" role="tab" data-topic={id} aria-selected={t === id} className={t === id ? "is-on" : ""} onClick={() => {
                 onTopic(id);
                 setSent(null);
                 setFailure("");
@@ -160,6 +179,8 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
                   ? "Your brochure request is with the team."
                   : t === "visit"
                     ? `We'll call you on ${sent.phone} to confirm your visit.`
+                    : booking
+                    ? `We've asked for a call on ${sent.when}, on ${sent.phone}. A Make Room designer will confirm the time with you.`
                     : `A Make Room designer will call you on ${sent.phone}.`}{" "}
                 Your design is attached, so we can talk about exactly what you've planned.
               </p>
@@ -179,10 +200,35 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
                 </Field>
               </div>
               <PhoneInput id="rq-phone" value={form.phone} onChange={set("phone")} error={errors.phone} />
-              <Field id="rq-email" label="Email address" optional={t !== "brochure"} error={errors.email}>
-                <input id="rq-email" type="email" inputMode="email" autoComplete="email" maxLength={254} required={t === "brochure"} value={form.email} onChange={(e) => set("email")(e.target.value)} aria-invalid={!!errors.email} aria-describedby="rq-email-msg" />
+              <Field id="rq-email" label="Email address" optional={t !== "brochure" && !booking} error={errors.email}>
+                <input id="rq-email" type="email" inputMode="email" autoComplete="email" maxLength={254} required={t === "brochure" || booking} value={form.email} onChange={(e) => set("email")(e.target.value)} aria-invalid={!!errors.email} aria-describedby="rq-email-msg" />
               </Field>
-              {t !== "brochure" && (
+              {booking && (
+                <>
+                  <Field id="rq-postcode" label="Postcode" error={errors.postcode}>
+                    <input id="rq-postcode" autoComplete="postal-code" required maxLength={10} value={form.postcode} onChange={(e) => set("postcode")(e.target.value.toUpperCase())} aria-invalid={!!errors.postcode} aria-describedby="rq-postcode-msg" />
+                  </Field>
+                  <div className="field-row">
+                    <Field id="rq-preferredDate" label="Preferred day" error={errors.preferredDate}>
+                      <select id="rq-preferredDate" required value={form.preferredDate} onChange={(e) => set("preferredDate")(e.target.value)} aria-invalid={!!errors.preferredDate} aria-describedby="rq-preferredDate-msg">
+                        <option value="">Choose a day</option>
+                        {days.map((d) => (
+                          <option key={d.value} value={d.value}>{d.label}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field id="rq-preferredTime" label="Preferred time" error={errors.preferredTime}>
+                      <select id="rq-preferredTime" required value={form.preferredTime} onChange={(e) => set("preferredTime")(e.target.value)} aria-invalid={!!errors.preferredTime} aria-describedby="rq-preferredTime-msg">
+                        <option value="">Choose a time</option>
+                        {BOOKING_SLOTS.map((x) => (
+                          <option key={x}>{x}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                </>
+              )}
+              {t !== "brochure" && !booking && (
                 <div className="field-row">
                   <Field id="rq-bestTime" label="Best time to call" optional>
                     <select id="rq-bestTime" value={form.bestTime} onChange={(e) => set("bestTime")(e.target.value)}>
@@ -208,9 +254,11 @@ export default function EnquiryDrawer({ topic, onClose, config, known, onTopic, 
                   <input id="rq-postcode" autoComplete="postal-code" maxLength={10} value={form.postcode} onChange={(e) => set("postcode")(e.target.value.toUpperCase())} aria-invalid={!!errors.postcode} aria-describedby="rq-postcode-msg" />
                 </Field>
               )}
-              <Field id="rq-notes" label="Anything we should know?" optional>
-                <textarea id="rq-notes" rows={3} maxLength={1200} value={form.notes} onChange={(e) => set("notes")(e.target.value)} />
-              </Field>
+              {!booking && (
+                <Field id="rq-notes" label="Anything we should know?" optional>
+                  <textarea id="rq-notes" rows={3} maxLength={1200} value={form.notes} onChange={(e) => set("notes")(e.target.value)} />
+                </Field>
+              )}
               <label className="check">
                 <input type="checkbox" checked={form.marketing} onChange={(e) => set("marketing")(e.target.checked)} />
                 <span>Send me occasional Make Room news and offers.</span>

@@ -57,5 +57,5 @@ test('option lists mirror the Make Room enquiry form',()=>{
  assert.deepEqual(INSTALL_TIMES,['As soon as possible','3–6 months','6–12 months','Just exploring for now']);
  assert.deepEqual(BUDGETS,['£10,000 – £20,000','£20,000 – £35,000','£35,000+']);
  assert.equal(BEST_TIMES.length,4);
- assert.deepEqual(Object.keys(REQUEST_TOPICS),['callback','visit','brochure']);
+ assert.deepEqual(Object.keys(REQUEST_TOPICS),['callback','book-call','visit','brochure']);
 });

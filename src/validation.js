@@ -8,9 +8,13 @@ export const BUDGETS = ["£10,000 – £20,000", "£20,000 – £35,000", "£35,
 export const BEST_TIMES = ["Morning (9am–12pm)", "Afternoon (12pm–5pm)", "Evening (5pm–7pm)", "Any time"];
 export const REQUEST_TOPICS = {
   callback: "Request a callback",
+  "book-call": "Book a call",
   visit: "Arrange a show village visit",
   brochure: "Request a brochure",
 };
+// Booked calls: a weekday and a two-hour slot inside office hours (Monday to Friday, 9am to 5pm).
+export const BOOKING_SLOTS = ["9am to 11am", "11am to 1pm", "1pm to 3pm", "3pm to 5pm"];
+export const BOOKING_WINDOW_DAYS = 31;
 
 export const POSTCODE_PATTERN = /^(?:GIR\s?0AA|(?:[A-PR-UWYZ]\d(?:\d|[A-HJKPSTUW])?|[A-PR-UWYZ][A-HK-Y]\d(?:\d|[ABEHMNPRVWXY])?)\s?\d[ABD-HJLNP-UW-Z]{2})$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;

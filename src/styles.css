@@ -362,6 +362,9 @@ input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius
 .cta svg { color: var(--green); margin-bottom: 4px; }
 .cta strong { font-weight: 700; font-size: 14.5px; color: var(--green-ink); }
 .cta small { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.cta--wide { grid-column: 1 / -1; min-height: 0; }
+.cta--locked svg { color: var(--muted); }
+.locked-ctas { margin-top: 14px; }
 .cta:hover { border-color: var(--green); background: var(--green-wash); }
 .next-steps { margin-top: 10px; padding: 16px; border-radius: var(--radius); background: var(--cream); }
 .next-steps h3 { font: 300 20px var(--display); margin-bottom: 10px; }
@@ -388,6 +391,7 @@ input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius
 .drawer-tabs button[role="tab"] { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-height: 64px; padding: 8px 6px; border-bottom: 2px solid transparent; color: var(--muted); font-size: 13px; text-transform: capitalize; }
 .drawer-tabs button[role="tab"].is-on { color: var(--green-deep); border-color: var(--green); font-weight: 700; }
 .drawer-tabs button[role="tab"] svg { width: 20px; height: 20px; }
+.drawer-tabs button[data-topic="book-call"] { text-transform: none; }
 .drawer-close { flex: none; }
 .drawer-body { flex: 1; overflow-y: auto; padding: 22px; }
 .drawer-body h2 { font: 300 28px/1.15 var(--display); }

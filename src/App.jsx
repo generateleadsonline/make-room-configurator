@@ -126,7 +126,7 @@ export default function App() {
   // Links in the PDF can open a request form directly (?request=callback).
   const [drawer, setDrawer] = useState(() => {
     const r = new URLSearchParams(location.search).get("request");
-    return ["callback", "visit", "brochure"].includes(r) ? r : null;
+    return ["callback", "book-call", "visit", "brochure"].includes(r) ? r : null;
   });
   const [tour, setTour] = useState(() => (read(TOUR_KEY) || new URLSearchParams(location.search).get("request") ? null : "welcome"));
   const [menuOpen, setMenuOpen] = useState(false);

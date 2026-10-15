@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowRight, Download, PhoneCall, MapPin, BookOpen, Link2, CheckCheck, LockKeyhole, ShieldCheck, PenLine, ChevronDown, Check, CircleCheck } from "lucide-react";
+import { ArrowRight, CalendarDays, Download, PhoneCall, MapPin, BookOpen, Link2, CheckCheck, LockKeyhole, ShieldCheck, PenLine, ChevronDown, Check, CircleCheck } from "lucide-react";
 import { summaryRows, area, fmtM } from "../catalog.js";
 import { CONTACT, SHOW_VILLAGE, PROCESS, USPS } from "../content.js";
 import { normaliseUkPhone, validateName, validateEmail, validatePostcode, INSTALL_TIMES, BUDGETS } from "../validation.js";
@@ -132,6 +132,11 @@ export function PriceStep({ config, quote, quoteCurrent, unlocked, lead, setLead
             </p>
           )}
           <div className="cta-grid">
+            <button type="button" className="cta cta--wide" data-cta="book-call" onClick={() => onRequest("book-call")}>
+              <CalendarDays size={20} />
+              <strong>Book a call</strong>
+              <small>Pick a day and time to talk it through</small>
+            </button>
             <button type="button" className="cta" onClick={() => onRequest("callback")}>
               <PhoneCall size={20} />
               <strong>Request a callback</strong>
@@ -276,6 +281,18 @@ export function PriceStep({ config, quote, quoteCurrent, unlocked, lead, setLead
         </a>
         .
       </p>
+      <div className="cta-grid locked-ctas" aria-label="Other next steps">
+        <button type="button" className="cta" data-cta="book-call" onClick={() => onRequest("book-call")}>
+          <CalendarDays size={20} />
+          <strong>Book a call</strong>
+          <small>Pick a day and time to talk it through</small>
+        </button>
+        <button type="button" className="cta cta--locked" data-cta="download-pdf" onClick={() => { window.dataLayer?.push({ event: "make_room_pdf_locked" }); document.getElementById("firstName")?.focus(); }}>
+          <LockKeyhole size={20} />
+          <strong>Download PDF</strong>
+          <small>Unlocks with your price, once you send the form</small>
+        </button>
+      </div>
       <p className="assure">
         Prefer to talk? Call <a href={CONTACT.phoneHref}>{CONTACT.phone}</a> or visit the {SHOW_VILLAGE.name}.
       </p>

@@ -78,6 +78,21 @@ Verified on a draft, and again on production after release (QA reports deleted f
 
 The WebKit (iPhone, iPad, WebGL 1) and Firefox Android suites still pass with no console errors.
 
+## Book a call on the price step (15 October 2026)
+
+The 15 October configurator audit passed this build on every point of GLO's standard except point 6: the price step had the lead form and a callback, but no **Book a call**.
+
+**Changes:**
+- **Price step, before the form is sent:** *Book a call* ("Pick a day and time to talk it through") and a locked *Download PDF* tile sit under the lead form. The locked tile returns focus to the form; the price stays hidden.
+- **Price step, after unlocking:** *Book a call* is the first, full-width tile under *Download my PDF design pack*, above callback, show village, brochure and share.
+- **Book a call form:** a fourth tab in the request drawer, with first name, last name, required UK phone (same Ofcom-aware rules), email, postcode, preferred day (the next ten weekdays, UK time) and preferred time (9am to 11am, 11am to 1pm, 1pm to 3pm, 3pm to 5pm). It posts to the existing `/api/request` as `topic: "book-call"`. The server requires email and postcode for this topic, accepts only a weekday from today to 31 days ahead and a listed slot, and stores `preferredDate` and `preferredTime` with the request in the `make-room-leads` Blobs store (reference `MR-REQ-…`).
+- **Tracking:** `make_room_request_open` (topic `book-call`) and `make_room_request_book_call` (with day and slot) go to the dataLayer, like the other request events. `?request=book-call` opens the form.
+
+**Results:**
+- `npm test`: 30 pass, including a new book-call test (stored as *Book a call* with day, slot and normalised contact; ten rejected variants: no email, no or bad postcode, no day, Saturday, past, beyond 31 days, unknown or missing slot, Ofcom drama number).
+- Headless Chrome (Metal), local build with the real handlers on an in-memory store, 1440 × 900 and 390 × 844, fresh contexts: 26/26 checks pass. The canvas shows within 2.9 s and the welcome tour opens by itself. The price is hidden before the form is sent; Book a call and Download PDF are both on the price step. Empty submit shows 7 errors and sends nothing. A valid booking posts `topic: "book-call"` with every field, shows the confirmation and reference, and both dataLayer events fire. After unlocking, the estimate (from £19,200 for the default design), Book a call and the PDF button are all shown.
+- three stays pinned at 0.162.0 (no 3D code changed).
+
 ## Known limits
 
 - Prices come from Make Room's published January 2024 guide; the live tool has no rate card.

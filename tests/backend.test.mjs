@@ -167,6 +167,32 @@ test('brochure needs an email, bad phones and dates are refused by field',async(
  const later=await send(f,{...callback,topic:'visit',preferredDate:'2027-02-08',requestId:'6e0c8a2b-1d3f-4a6b-8c9d-0e1f2a3b4c5d'});
  assert.equal(later.status,200,'120 days ahead is allowed');
 });
+test('book-a-call requests need email, postcode, a weekday and a slot, and store as book-call',async()=>{
+ const f=fixture();
+ const booking={...callback,topic:'book-call',email:'QA@example.com',postcode:'hx3 0ua',preferredDate:'2026-10-13',preferredTime:'11am to 1pm',config:DEFAULT_CONFIG};
+ const fail=async(body,field)=>{const r=await send(f,{...booking,...body});assert.equal(r.status,400,JSON.stringify(body));assert.equal((await r.json()).field,field,JSON.stringify(body));};
+ await fail({email:''},'email');
+ await fail({postcode:''},'postcode');
+ await fail({postcode:'ZZ'},'postcode');
+ await fail({preferredDate:''},'preferredDate');
+ await fail({preferredDate:'2026-10-17'},'preferredDate');
+ await fail({preferredDate:'2026-10-10'},'preferredDate');
+ await fail({preferredDate:'2026-11-13'},'preferredDate');
+ await fail({preferredTime:'Any time'},'preferredTime');
+ await fail({preferredTime:undefined},'preferredTime');
+ await fail({phone:'07700 900123'},'phone');
+ assert.equal(f.records.size,0);
+ const ok=await send(f,booking);
+ assert.equal(ok.status,200);
+ const record=f.records.get('requests/'+otherId);
+ assert.equal(record.topic,'book-call');
+ assert.equal(record.topicLabel,'Book a call');
+ assert.equal(record.preferredDate,'2026-10-13');
+ assert.equal(record.preferredTime,'11am to 1pm');
+ assert.equal(record.bestTime,'');
+ assert.deepEqual(record.contact,{firstName:'QA',lastName:'Test',phone:'01422 580172',phoneE164:'+441422580172',email:'qa@example.com',postcode:'HX3 0UA'});
+ assert.equal(record.designReference,designReferenceFor(DEFAULT_CONFIG));
+});
 test('request replay is idempotent, a changed replay conflicts, cross-origin fails',async()=>{
  const f=fixture();
  const first=await (await send(f,callback)).json();
